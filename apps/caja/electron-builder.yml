@@ -1,0 +1,24 @@
+appId: com.todoenlocal.caja
+productName: enLocal Caja
+directories:
+  app: "dist/electron"
+  buildResources: assets
+  output: release
+asar: false
+files:
+  - "**/*"
+extraResources:
+  - from: "../../tools/postgres/"
+    to: "postgres"
+  - from: "../../packages/core-db/migrations/"
+    to: "migrations"
+win:
+  target: nsis
+  icon: assets/icon.ico
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: assets/icon.ico
+publish:
+  provider: generic
+  url: https://todoenlocal.com/api/v1/software/caja

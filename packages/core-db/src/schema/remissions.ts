@@ -1,0 +1,179 @@
+import { pgTable, uuid, text, boolean, timestamp, numeric, integer } from 'drizzle-orm/pg-core'
+import { customers } from './customers'
+import { products } from './products'
+import { invoices } from './invoices'
+
+// ─── Notas de Remision ─────────────────────────────────────────
+export const remissionNotes = pgTable('remission_notes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  folio: integer('folio').notNull(),
+  series: text('series').notNull().default('NR'),
+  customerId: uuid('customer_id').notNull().references(() => customers.id, { onDelete: 'restrict' }),
+  customerName: text('customer_name').notNull(),
+  customerRfc: text('customer_rfc'),
+  paymentType: text('payment_type').notNull(),
+  creditDays: integer('credit_days'),
+  dueDate: timestamp('due_date', { withTimezone: true }),
+  status: text('status').notNull().default('draft'),
+  subtotal: numeric('subtotal', { precision: 12, scale: 2 }).notNull().default('0'),
+  discountAmount: numeric('discount_amount', { precision: 12, scale: 2 }).notNull().default('0'),
+  discountPercent: numeric('discount_percent', { precision: 5, scale: 2 }).notNull().default('0'),
+  taxAmount: numeric('tax_amount', { precision: 12, scale: 2 }).notNull().default('0'),
+  total: numeric('total', { precision: 12, scale: 2 }).notNull().default('0'),
+  ticketId: uuid('ticket_id').references(() => invoices.id, { onDelete: 'set null' }),
+  deliveredBy: uuid('delivered_by'),
+  deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+  receivedBy: text('received_by'),
+  receivedIdDoc: text('received_id_doc'),
+  signatureUrl: text('signature_url'),
+  preparedBy: uuid('prepared_by'),
+  preparedAt: timestamp('prepared_at', { withTimezone: true }),
+  deliveryAddress: text('delivery_address'),
+  deliveryNotes: text('delivery_notes'),
+  internalNotes: text('internal_notes'),
+  createdBy: uuid('created_by').notNull(),
+  confirmedBy: uuid('confirmed_by'),
+  confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+  cancelledBy: uuid('cancelled_by'),
+  cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+  cancelReason: text('cancel_reason'),
+  cloudId: text('cloud_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+// ─── Items de Nota de Remision ─────────────────────────────────
+export const remissionNoteItems = pgTable('remission_note_items', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  remissionNoteId: uuid('remission_note_id').notNull().references(() => remissionNotes.id, { onDelete: 'cascade' }),
+  productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'restrict' }),
+  productName: text('product_name').notNull(),
+  productSku: text('product_sku'),
+  quantity: numeric('quantity', { precision: 12, scale: 4 }).notNull(),
+  unitPrice: numeric('unit_price', { precision: 12, scale: 2 }).notNull(),
+  discount: numeric('discount', { precision: 12, scale: 2 }).notNull().default('0'),
+  taxRate: numeric('tax_rate', { precision: 5, scale: 4 }).notNull().default('0.1600'),
+  taxAmount: numeric('tax_amount', { precision: 12, scale: 2 }).notNull().default('0'),
+  total: numeric('total', { precision: 12, scale: 2 }).notNull(),
+  quantityPrepared: numeric('quantity_prepared', { precision: 12, scale: 4 }).notNull().default('0'),
+  quantityDelivered: numeric('quantity_delivered', { precision: 12, scale: 4 }).notNull().default('0'),
+  quantityReturned: numeric('quantity_returned', { precision: 12, scale: 4 }).notNull().default('0'),
+  satCode: text('sat_code'),
+  satUnit: text('sat_unit').notNull().default('E48'),
+  inventoryDeducted: boolean('inventory_deducted').notNull().default(false),
+  inventoryMovementId: uuid('inventory_movement_id'),
+  notes: text('notes'),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+// ─── Devoluciones ──────────────────────────────────────────────
+export const remissionReturns = pgTable('remission_returns', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  remissionNoteId: uuid('remission_note_id').notNull().references(() => remissionNotes.id, { onDelete: 'restrict' }),
+  folio: integer('folio').notNull(),
+  series: text('series').notNull().default('DEV'),
+  status: text('status').notNull().default('requested'),
+  returnType: text('return_type').notNull(),
+  reasonCategory: text('reason_category').notNull(),
+  reason: text('reason').notNull(),
+  totalReturned: numeric('total_returned', { precision: 12, scale: 2 }).notNull().default('0'),
+  requestedBy: uuid('requested_by').notNull(),
+  requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
+  reviewedBy: uuid('reviewed_by'),
+  reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+  reviewNotes: text('review_notes'),
+  completedAt: timestamp('completed_at', { withTimezone: true }),
+  ticketAdjusted: boolean('ticket_adjusted').notNull().default(false),
+  creditNoteId: uuid('credit_note_id'),
+  receivableAdjusted: boolean('receivable_adjusted').notNull().default(false),
+  cloudId: text('cloud_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+// ─── Items de Devolucion ───────────────────────────────────────
+export const remissionReturnItems = pgTable('remission_return_items', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  returnId: uuid('return_id').notNull().references(() => remissionReturns.id, { onDelete: 'cascade' }),
+  remissionItemId: uuid('remission_item_id').notNull().references(() => remissionNoteItems.id, { onDelete: 'restrict' }),
+  productId: uuid('product_id').notNull(),
+  productName: text('product_name').notNull(),
+  quantityRequested: numeric('quantity_requested', { precision: 12, scale: 4 }).notNull(),
+  quantityAccepted: numeric('quantity_accepted', { precision: 12, scale: 4 }).notNull().default('0'),
+  quantityRejected: numeric('quantity_rejected', { precision: 12, scale: 4 }).notNull().default('0'),
+  itemStatus: text('item_status').notNull().default('pending'),
+  rejectReason: text('reject_reason'),
+  productCondition: text('product_condition'),
+  conditionNotes: text('condition_notes'),
+  restockedQuantity: numeric('restocked_quantity', { precision: 12, scale: 4 }).notNull().default('0'),
+  inventoryMovementId: uuid('inventory_movement_id'),
+  unitPrice: numeric('unit_price', { precision: 12, scale: 2 }).notNull(),
+  totalRefund: numeric('total_refund', { precision: 12, scale: 2 }).notNull().default('0'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+// ─── Cuentas por Cobrar ────────────────────────────────────────
+export const receivables = pgTable('receivables', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  customerId: uuid('customer_id').notNull().references(() => customers.id, { onDelete: 'restrict' }),
+  ticketId: uuid('ticket_id').notNull().references(() => invoices.id, { onDelete: 'restrict' }),
+  remissionNoteId: uuid('remission_note_id').references(() => remissionNotes.id, { onDelete: 'set null' }),
+  invoiceId: uuid('invoice_id').references(() => invoices.id, { onDelete: 'set null' }),
+  originalAmount: numeric('original_amount', { precision: 12, scale: 2 }).notNull(),
+  adjustments: numeric('adjustments', { precision: 12, scale: 2 }).notNull().default('0'),
+  amountPaid: numeric('amount_paid', { precision: 12, scale: 2 }).notNull().default('0'),
+  balance: numeric('balance', { precision: 12, scale: 2 }).notNull(),
+  issuedDate: timestamp('issued_date', { withTimezone: true }).notNull(),
+  dueDate: timestamp('due_date', { withTimezone: true }).notNull(),
+  status: text('status').notNull().default('current'),
+  lastPaymentDate: timestamp('last_payment_date', { withTimezone: true }),
+  daysOverdue: integer('days_overdue').notNull().default(0),
+  cloudId: text('cloud_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+// ─── Cobros (pagos a CxC) ─────────────────────────────────────
+export const receivablePayments = pgTable('receivable_payments', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  receivableId: uuid('receivable_id').notNull().references(() => receivables.id, { onDelete: 'restrict' }),
+  amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+  paymentMethod: text('payment_method').notNull(),
+  reference: text('reference'),
+  paymentComplementId: uuid('payment_complement_id'),
+  complementEmitted: boolean('complement_emitted').notNull().default(false),
+  receivedBy: uuid('received_by').notNull(),
+  notes: text('notes'),
+  cloudId: text('cloud_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+// ─── Historial de Estados ──────────────────────────────────────
+export const remissionStatusHistory = pgTable('remission_status_history', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  remissionNoteId: uuid('remission_note_id').notNull().references(() => remissionNotes.id, { onDelete: 'cascade' }),
+  fromStatus: text('from_status'),
+  toStatus: text('to_status').notNull(),
+  changedBy: uuid('changed_by').notNull(),
+  changedByName: text('changed_by_name').notNull(),
+  changedByRole: text('changed_by_role').notNull(),
+  notes: text('notes'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+// ─── Types ─────────────────────────────────────────────────────
+export type RemissionNote = typeof remissionNotes.$inferSelect
+export type NewRemissionNote = typeof remissionNotes.$inferInsert
+export type RemissionNoteItem = typeof remissionNoteItems.$inferSelect
+export type NewRemissionNoteItem = typeof remissionNoteItems.$inferInsert
+export type RemissionReturn = typeof remissionReturns.$inferSelect
+export type NewRemissionReturn = typeof remissionReturns.$inferInsert
+export type RemissionReturnItem = typeof remissionReturnItems.$inferSelect
+export type NewRemissionReturnItem = typeof remissionReturnItems.$inferInsert
+export type Receivable = typeof receivables.$inferSelect
+export type NewReceivable = typeof receivables.$inferInsert
+export type ReceivablePayment = typeof receivablePayments.$inferSelect
+export type NewReceivablePayment = typeof receivablePayments.$inferInsert
+export type RemissionStatusHistoryEntry = typeof remissionStatusHistory.$inferSelect
+export type NewRemissionStatusHistoryEntry = typeof remissionStatusHistory.$inferInsert

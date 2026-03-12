@@ -1,0 +1,13 @@
+// @enlocal/react-hooks — Hooks React compartidos
+export { useAuth, api } from './useAuth'
+export { useCRUD } from './useCRUD'
+export { useSocket, connectSocket, disconnectSocket, getSocket } from './useSocket'
+export { useConnection } from './useConnection'
+export { useLicense } from './useLicense'
+export { useLicenseStore } from './useLicenseStore'
+export type { TrialInfo, LicenseStoreState } from './useLicenseStore'
+export { useModuleAccess } from './useModuleAccess'
+export { useSyncStatus } from './useSyncStatus'
+export { useToast } from './useToast'
+export { usePermissionRegistry } from './usePermissionRegistry'
+export type { PermissionDef, PermissionSection, PermissionRegistryResult } from './usePermissionRegistry'

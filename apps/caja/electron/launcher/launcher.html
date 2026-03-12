@@ -1,0 +1,1111 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>enLocal Caja</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --primary: #1e3a5f;
+    --primary-dark: #152c4a;
+    --primary-light: #e0e8f0;
+    --primary-50: #f0f4f8;
+    --accent: #2563eb;
+    --accent-dark: #1d4ed8;
+    --gray-50: #f9fafb;
+    --gray-100: #f3f4f6;
+    --gray-200: #e5e7eb;
+    --gray-300: #d1d5db;
+    --gray-400: #9ca3af;
+    --gray-500: #6b7280;
+    --gray-600: #4b5563;
+    --gray-700: #374151;
+    --gray-800: #1f2937;
+    --gray-900: #111827;
+    --red-500: #ef4444;
+    --red-50: #fef2f2;
+    --red-700: #b91c1c;
+    --amber-50: #fffbeb;
+    --amber-600: #d97706;
+    --amber-700: #b45309;
+    --radius: 12px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
+    --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1);
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--gray-50);
+    color: var(--gray-800);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    -webkit-app-region: drag;
+    user-select: none;
+  }
+
+  button, input { -webkit-app-region: no-drag; }
+
+  .header {
+    background: var(--primary);
+    color: white;
+    padding: 20px 24px;
+    text-align: center;
+  }
+  .header h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
+  .header p { font-size: 12px; opacity: 0.85; margin-top: 2px; }
+
+  .content {
+    flex: 1;
+    padding: 24px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .section { display: none; width: 100%; max-width: 400px; }
+  .section.active { display: flex; flex-direction: column; gap: 16px; }
+
+  /* ─── Cards ─── */
+  .card {
+    background: white;
+    border-radius: var(--radius);
+    padding: 20px;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--gray-200);
+  }
+
+  .card-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--gray-700);
+    margin-bottom: 12px;
+  }
+
+  /* ─── Inputs ─── */
+  .input-group { display: flex; flex-direction: column; gap: 6px; }
+  .input-group label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--gray-600);
+  }
+  .input-group input {
+    padding: 10px 12px;
+    border: 1px solid var(--gray-300);
+    border-radius: 8px;
+    font-size: 15px;
+    font-family: 'Consolas', 'SF Mono', monospace;
+    letter-spacing: 1px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .input-group input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+  }
+
+  /* ─── Buttons ─── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    width: 100%;
+  }
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .btn-primary {
+    background: var(--primary);
+    color: white;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--primary-dark);
+  }
+  .btn-secondary {
+    background: var(--gray-100);
+    color: var(--gray-700);
+    border: 1px solid var(--gray-300);
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background: var(--gray-200);
+  }
+  .btn-large {
+    padding: 16px 24px;
+    font-size: 16px;
+    border-radius: 10px;
+    box-shadow: var(--shadow-lg);
+  }
+
+  /* ─── Fingerprint ─── */
+  .fingerprint {
+    font-size: 11px;
+    color: var(--gray-400);
+    font-family: 'Consolas', 'SF Mono', monospace;
+    text-align: center;
+    word-break: break-all;
+    padding: 8px;
+    background: var(--gray-50);
+    border-radius: 6px;
+  }
+
+  /* ─── Status message ─── */
+  .status-msg {
+    font-size: 13px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    text-align: center;
+    display: none;
+  }
+  .status-msg.error {
+    display: block;
+    background: var(--red-50);
+    color: var(--red-700);
+    border: 1px solid #fecaca;
+  }
+  .status-msg.success {
+    display: block;
+    background: var(--primary-light);
+    color: var(--primary-dark);
+    border: 1px solid #b6cde0;
+  }
+
+  /* ─── Progress bar ─── */
+  .progress-container {
+    width: 100%;
+  }
+  .progress-bar-bg {
+    width: 100%;
+    height: 8px;
+    background: var(--gray-200);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 4px;
+    transition: width 0.4s ease;
+    width: 0%;
+  }
+  .progress-steps {
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .progress-step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--gray-400);
+  }
+  .progress-step.active {
+    color: var(--gray-700);
+    font-weight: 500;
+  }
+  .progress-step.done {
+    color: var(--accent);
+  }
+  .step-icon {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  .progress-step .step-icon {
+    background: var(--gray-200);
+    color: var(--gray-400);
+  }
+  .progress-step.active .step-icon {
+    background: var(--primary-light);
+    color: var(--accent);
+  }
+  .progress-step.done .step-icon {
+    background: var(--accent);
+    color: white;
+  }
+
+  /* ─── Spinner ─── */
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--gray-300);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    flex-shrink: 0;
+  }
+
+  /* ─── Ready section ─── */
+  .license-info {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 12px;
+    font-size: 13px;
+  }
+  .license-info dt {
+    color: var(--gray-500);
+    font-weight: 500;
+  }
+  .license-info dd {
+    color: var(--gray-800);
+    font-weight: 600;
+  }
+
+  .qr-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 16px;
+  }
+  .qr-container img {
+    width: 160px;
+    height: 160px;
+    border-radius: 8px;
+  }
+  .qr-url {
+    font-size: 13px;
+    font-family: 'Consolas', 'SF Mono', monospace;
+    color: var(--gray-600);
+    background: var(--gray-100);
+    padding: 6px 12px;
+    border-radius: 6px;
+  }
+
+  .device-counter {
+    text-align: center;
+    font-size: 13px;
+    color: var(--gray-500);
+    padding: 8px;
+    background: var(--gray-50);
+    border-radius: 8px;
+  }
+  .device-counter strong {
+    color: var(--gray-800);
+  }
+
+  /* ─── Error / Revoked section ─── */
+  .error-box {
+    background: var(--red-50);
+    border: 1px solid #fecaca;
+    border-radius: var(--radius);
+    padding: 20px;
+    text-align: center;
+  }
+  .error-box .error-icon {
+    font-size: 32px;
+    margin-bottom: 8px;
+  }
+  .error-box .error-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--red-700);
+    margin-bottom: 8px;
+  }
+  .error-box .error-message {
+    font-size: 13px;
+    color: var(--gray-600);
+    margin-bottom: 16px;
+    word-break: break-word;
+  }
+
+  .revoked-box {
+    background: var(--amber-50);
+    border: 1px solid #fde68a;
+    border-radius: var(--radius);
+    padding: 20px;
+    text-align: center;
+  }
+  .revoked-box .revoked-icon {
+    font-size: 32px;
+    margin-bottom: 8px;
+  }
+  .revoked-box .revoked-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--amber-700);
+    margin-bottom: 8px;
+  }
+  .revoked-box .revoked-message {
+    font-size: 13px;
+    color: var(--gray-600);
+    margin-bottom: 16px;
+    line-height: 1.5;
+  }
+
+  /* ─── Welcome cards ─── */
+  .welcome-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--gray-800);
+    text-align: center;
+    margin-bottom: 4px;
+  }
+  .welcome-subtitle {
+    font-size: 13px;
+    color: var(--gray-500);
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .welcome-card {
+    background: white;
+    border-radius: var(--radius);
+    padding: 24px 20px;
+    box-shadow: var(--shadow);
+    border: 2px solid var(--gray-200);
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+  }
+  .welcome-card:hover {
+    border-color: var(--accent);
+    box-shadow: var(--shadow-lg);
+  }
+  .welcome-card .wc-icon {
+    font-size: 32px;
+    margin-bottom: 8px;
+  }
+  .welcome-card .wc-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--gray-800);
+    margin-bottom: 4px;
+  }
+  .welcome-card .wc-desc {
+    font-size: 12px;
+    color: var(--gray-500);
+    line-height: 1.4;
+  }
+  .welcome-card.primary {
+    border-color: var(--accent);
+    background: linear-gradient(135deg, #eff6ff, #ffffff);
+  }
+  .welcome-card.primary .wc-title { color: var(--accent-dark); }
+  .welcome-divider {
+    text-align: center;
+    font-size: 12px;
+    color: var(--gray-400);
+    font-weight: 500;
+  }
+
+  /* ─── Trial badge ─── */
+  .trial-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: center;
+  }
+  .trial-badge.warning {
+    background: var(--amber-50);
+    color: var(--amber-700);
+    border: 1px solid #fde68a;
+  }
+  .trial-badge.danger {
+    background: var(--red-50);
+    color: var(--red-700);
+    border: 1px solid #fecaca;
+  }
+  .trial-cta {
+    text-align: center;
+    font-size: 12px;
+    color: var(--gray-500);
+    padding: 8px;
+  }
+  .trial-cta a {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .trial-cta a:hover { text-decoration: underline; }
+
+  /* ─── Info box (for trial expired / offline) ─── */
+  .info-box {
+    background: white;
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius);
+    padding: 24px 20px;
+    text-align: center;
+  }
+  .info-box .info-icon {
+    font-size: 40px;
+    margin-bottom: 12px;
+  }
+  .info-box .info-title {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--gray-800);
+    margin-bottom: 8px;
+  }
+  .info-box .info-message {
+    font-size: 13px;
+    color: var(--gray-500);
+    line-height: 1.5;
+    margin-bottom: 20px;
+  }
+  .info-box .info-message a {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .info-box .info-message a:hover { text-decoration: underline; }
+  .btn-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* ─── Update area ─── */
+  .update-alert {
+    background: var(--primary-50);
+    border: 1px solid #bfdbfe;
+    border-radius: var(--radius);
+    padding: 16px;
+  }
+  .update-alert-icon {
+    font-size: 24px;
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .update-alert-content {
+    text-align: center;
+    margin-bottom: 12px;
+  }
+  .update-alert-content strong {
+    font-size: 14px;
+    color: var(--gray-800);
+  }
+  .update-warning {
+    font-size: 12px;
+    color: var(--gray-500);
+    margin-top: 6px;
+    line-height: 1.4;
+  }
+  .update-alert-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .update-alert-actions .btn-primary,
+  .update-alert-actions .btn-secondary {
+    flex: 1;
+    padding: 10px 12px;
+    font-size: 13px;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .update-alert-actions .btn-primary {
+    background: var(--primary);
+    color: white;
+  }
+  .update-alert-actions .btn-primary:hover {
+    background: var(--primary-dark);
+  }
+  .update-alert-actions .btn-secondary {
+    background: var(--gray-100);
+    color: var(--gray-700);
+    border: 1px solid var(--gray-300);
+  }
+  .update-alert-actions .btn-secondary:hover {
+    background: var(--gray-200);
+  }
+  .update-progress-bar {
+    width: 100%;
+    height: 6px;
+    background: var(--gray-200);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-top: 8px;
+  }
+  .update-progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+    width: 0%;
+  }
+  .update-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--gray-600);
+  }
+  .spinner-small {
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--gray-300);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    flex-shrink: 0;
+  }
+
+  .footer {
+    padding: 12px 24px;
+    text-align: center;
+    font-size: 11px;
+    color: var(--gray-400);
+    border-top: 1px solid var(--gray-200);
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>enLocal Caja</h1>
+  <p>Panel de Control</p>
+</div>
+
+<div class="content">
+
+  <!-- ════════ WELCOME (first time) ════════ -->
+  <div id="section-welcome" class="section">
+    <div class="welcome-title">Bienvenido a enLocal Caja</div>
+    <div class="welcome-subtitle">Elige como quieres comenzar</div>
+
+    <div class="welcome-card primary" onclick="handleStartTrial()" id="card-start-trial">
+      <div class="wc-icon">&#x1F680;</div>
+      <div class="wc-title">Iniciar Prueba Gratuita</div>
+      <div class="wc-desc">15 dias con todas las funciones habilitadas, sin compromiso.</div>
+    </div>
+
+    <div class="welcome-divider">o</div>
+
+    <div class="welcome-card" onclick="showSection('activation')">
+      <div class="wc-icon">&#x1F511;</div>
+      <div class="wc-title">Tengo una Licencia</div>
+      <div class="wc-desc">Ingresa tu clave de licencia comprada en todoenlocal.com</div>
+    </div>
+
+    <div id="welcome-status" class="status-msg"></div>
+  </div>
+
+  <!-- ════════ TRIAL EXPIRED ════════ -->
+  <div id="section-trial-expired" class="section">
+    <div class="info-box">
+      <div class="info-icon">&#x23F0;</div>
+      <div class="info-title">Periodo de prueba finalizado</div>
+      <div class="info-message">
+        Los 15 dias de prueba gratuita han terminado.
+        <br><br>
+        Compra tu licencia en <a href="#" onclick="api.invoke('open-external', 'https://todoenlocal.com'); return false;">todoenlocal.com</a> para seguir usando el sistema.
+        <br><br>
+        Tus datos se conservan y estaran disponibles al activar tu licencia.
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-primary" onclick="showSection('activation')">
+          Activar licencia
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════ TRIAL OFFLINE EXPIRED ════════ -->
+  <div id="section-trial-offline-expired" class="section">
+    <div class="info-box">
+      <div class="info-icon">&#x1F310;</div>
+      <div class="info-title">Conexion requerida</div>
+      <div class="info-message">
+        Se necesita conexion a internet para completar el registro del periodo de prueba.
+        <br><br>
+        Conectate a internet y presiona Reintentar.
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-primary" onclick="handleRetry()">
+          Reintentar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════ ACTIVATION ════════ -->
+  <div id="section-activation" class="section">
+    <div class="card">
+      <div class="card-title">Activar Licencia</div>
+      <div class="input-group">
+        <label for="serial-input">Clave de licencia</label>
+        <input type="text" id="serial-input" placeholder="TEL-XXXXX-XXXXX-XXXXX" maxlength="23" autocomplete="off" spellcheck="false">
+      </div>
+    </div>
+
+    <div id="activation-status" class="status-msg"></div>
+
+    <button id="btn-activate" class="btn btn-primary" onclick="handleActivate()">
+      Activar licencia
+    </button>
+
+    <div class="card">
+      <div class="card-title">Identificador de hardware</div>
+      <div id="fingerprint-display" class="fingerprint">Cargando...</div>
+    </div>
+  </div>
+
+  <!-- ════════ BOOTING ════════ -->
+  <div id="section-booting" class="section">
+    <div class="card">
+      <div class="card-title">Iniciando sistema</div>
+      <div class="progress-container">
+        <div class="progress-bar-bg">
+          <div id="progress-fill" class="progress-bar-fill"></div>
+        </div>
+        <div class="progress-steps" id="progress-steps">
+          <div class="progress-step" data-step="pg">
+            <span class="step-icon">1</span>
+            <span>Base de datos</span>
+          </div>
+          <div class="progress-step" data-step="db">
+            <span class="step-icon">2</span>
+            <span>Migraciones</span>
+          </div>
+          <div class="progress-step" data-step="license">
+            <span class="step-icon">3</span>
+            <span>Validando licencia</span>
+          </div>
+          <div class="progress-step" data-step="server">
+            <span class="step-icon">4</span>
+            <span>Servidor</span>
+          </div>
+          <div class="progress-step" data-step="ready">
+            <span class="step-icon">5</span>
+            <span>Listo</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="boot-detail" style="text-align:center; font-size:12px; color:var(--gray-400);">
+      Preparando...
+    </div>
+  </div>
+
+  <!-- ════════ READY ════════ -->
+  <div id="section-ready" class="section">
+    <!-- Trial badge (hidden when not trial) -->
+    <div id="trial-badge" class="trial-badge warning" style="display:none;">
+      <span id="trial-badge-text">Periodo de prueba: -- dias restantes</span>
+    </div>
+
+    <div class="card">
+      <div class="card-title" id="ready-license-title">Licencia</div>
+      <dl class="license-info">
+        <dt>Serial</dt>
+        <dd id="info-serial">&mdash;</dd>
+        <dt>Plan</dt>
+        <dd id="info-plan">&mdash;</dd>
+        <dt>Vigencia</dt>
+        <dd id="info-expires">&mdash;</dd>
+      </dl>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Acceso en red</div>
+      <div class="qr-container">
+        <img id="qr-image" alt="QR" style="display:none;">
+        <span id="qr-url" class="qr-url"></span>
+      </div>
+    </div>
+
+    <button id="btn-open-system" class="btn btn-primary btn-large" onclick="handleOpenSystem()">
+      Abrir Sistema
+    </button>
+
+    <div id="device-counter" class="device-counter">
+      <strong id="device-current">0</strong> de <strong id="device-max">1</strong> dispositivos conectados
+    </div>
+
+    <!-- Trial CTA (hidden when not trial) -->
+    <div id="trial-cta" class="trial-cta" style="display:none;">
+      Activa tu licencia para uso permanente &mdash;
+      <a href="#" onclick="showSection('activation'); return false;">Activar</a>
+    </div>
+
+    <!-- Update area -->
+    <div id="update-area" style="display:none;">
+      <div id="update-checking" style="display:none;" class="update-row">
+        <span class="spinner-small"></span> Buscando actualizaciones...
+      </div>
+
+      <div id="update-available" style="display:none;" class="update-alert">
+        <div class="update-alert-icon">&#x2B06;</div>
+        <div class="update-alert-content">
+          <strong>Nueva version disponible: <span id="update-version"></span></strong>
+          <p class="update-warning">La aplicacion se cerrara durante la actualizacion.
+          Se crearan respaldos automaticos antes de proceder.</p>
+        </div>
+        <div class="update-alert-actions">
+          <button onclick="handleInstallUpdate()" class="btn-primary">Actualizar ahora</button>
+          <button onclick="dismissUpdate()" class="btn-secondary">Mas tarde</button>
+        </div>
+      </div>
+
+      <div id="update-backing-up" style="display:none;" class="update-row">
+        <span class="spinner-small"></span> Creando respaldos de seguridad...
+      </div>
+
+      <div id="update-downloading" style="display:none;">
+        <div class="update-row">
+          <span class="spinner-small"></span> Descargando actualizacion... <span id="update-progress-text">0%</span>
+        </div>
+        <div class="update-progress-bar"><div id="update-progress-fill" class="update-progress-fill"></div></div>
+      </div>
+
+      <div id="update-uptodate" style="display:none; color: var(--gray-400); font-size: 12px; text-align: center;">
+        Version actual: <span id="current-version"></span>
+      </div>
+
+      <div id="update-error" style="display:none; color: var(--red-500); font-size: 12px; text-align: center;">
+        <span id="update-error-text"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════ REVOKED ════════ -->
+  <div id="section-revoked" class="section">
+    <div class="revoked-box">
+      <div class="revoked-icon">&#x1F6AB;</div>
+      <div class="revoked-title">Licencia Revocada</div>
+      <div class="revoked-message">
+        La licencia de este terminal ha sido revocada desde el panel de administración.
+        <br><br>
+        Para continuar usando el sistema, contacta a soporte o activa una nueva licencia.
+      </div>
+      <button class="btn btn-primary" onclick="showSection('activation')">
+        Activar nueva licencia
+      </button>
+    </div>
+  </div>
+
+  <!-- ════════ ERROR ════════ -->
+  <div id="section-error" class="section">
+    <div class="error-box">
+      <div class="error-icon">&#x26A0;</div>
+      <div class="error-title">Error al iniciar</div>
+      <div id="error-message" class="error-message"></div>
+      <button class="btn btn-secondary" onclick="handleRetry()">Reintentar</button>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer">
+  enLocal Caja &mdash; todoenlocal.com
+</div>
+
+<script>
+  const api = window.electronAPI;
+  let currentSection = null;
+
+  // ─── Section management ───
+  function showSection(name) {
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    const el = document.getElementById('section-' + name);
+    if (el) el.classList.add('active');
+    currentSection = name;
+  }
+
+  // ─── Activation ───
+  async function handleActivate() {
+    const input = document.getElementById('serial-input');
+    const btn = document.getElementById('btn-activate');
+    const status = document.getElementById('activation-status');
+    const serial = input.value.trim();
+
+    if (!serial) {
+      status.className = 'status-msg error';
+      status.textContent = 'Ingresa una clave de licencia';
+      status.style.display = 'block';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Activando...';
+    status.style.display = 'none';
+
+    try {
+      const result = await api.invoke('activate-license', serial);
+      if (result.success) {
+        status.className = 'status-msg success';
+        status.textContent = result.message;
+        status.style.display = 'block';
+        // Boot sequence starts automatically via IPC
+      } else {
+        status.className = 'status-msg error';
+        status.textContent = result.message;
+        status.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Activar licencia';
+      }
+    } catch (err) {
+      status.className = 'status-msg error';
+      status.textContent = err.message || 'Error al activar';
+      status.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Activar licencia';
+    }
+  }
+
+  // ─── Start Trial ───
+  async function handleStartTrial() {
+    const card = document.getElementById('card-start-trial');
+    const status = document.getElementById('welcome-status');
+    card.style.opacity = '0.6';
+    card.style.pointerEvents = 'none';
+    status.style.display = 'none';
+
+    try {
+      const result = await api.invoke('start-trial');
+      if (result.success) {
+        status.className = 'status-msg success';
+        status.textContent = result.message;
+        status.style.display = 'block';
+        // Boot starts automatically
+      } else {
+        status.className = 'status-msg error';
+        status.textContent = result.message;
+        status.style.display = 'block';
+        card.style.opacity = '1';
+        card.style.pointerEvents = 'auto';
+      }
+    } catch (err) {
+      status.className = 'status-msg error';
+      status.textContent = err.message || 'Error al iniciar prueba';
+      status.style.display = 'block';
+      card.style.opacity = '1';
+      card.style.pointerEvents = 'auto';
+    }
+  }
+
+  // ─── Open system ───
+  async function handleOpenSystem() {
+    const btn = document.getElementById('btn-open-system');
+    btn.disabled = true;
+    btn.textContent = 'Abriendo...';
+    try {
+      await api.invoke('open-system');
+    } catch {}
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = 'Abrir Sistema';
+    }, 2000);
+  }
+
+  // ─── Retry ───
+  function handleRetry() {
+    api.invoke('retry-boot');
+  }
+
+  // ─── Progress ───
+  const stepOrder = ['pg', 'db', 'license', 'server', 'ready'];
+
+  function updateProgress(data) {
+    const fill = document.getElementById('progress-fill');
+    const detail = document.getElementById('boot-detail');
+    fill.style.width = (data.progress * 100) + '%';
+    if (data.detail) detail.textContent = data.detail;
+
+    const idx = stepOrder.indexOf(data.step);
+    stepOrder.forEach((s, i) => {
+      const el = document.querySelector(`.progress-step[data-step="${s}"]`);
+      if (!el) return;
+      el.classList.remove('active', 'done');
+      if (i < idx) {
+        el.classList.add('done');
+        el.querySelector('.step-icon').innerHTML = '&#x2713;';
+      } else if (i === idx) {
+        el.classList.add('active');
+      }
+    });
+  }
+
+  // ─── IPC listeners ───
+  api.on('show-section', (section) => showSection(section));
+
+  api.on('boot-progress', (data) => updateProgress(data));
+
+  api.on('server-ready', (data) => {
+    const qrImg = document.getElementById('qr-image');
+    const qrUrl = document.getElementById('qr-url');
+    if (data.qrDataUrl) {
+      qrImg.src = data.qrDataUrl;
+      qrImg.style.display = 'block';
+    }
+    qrUrl.textContent = data.lanUrl || ('localhost:' + data.port);
+    showSection('ready');
+  });
+
+  api.on('boot-error', (data) => {
+    document.getElementById('error-message').textContent = data.message;
+    showSection('error');
+  });
+
+  api.on('license-revoked', () => {
+    showSection('revoked');
+  });
+
+  api.on('connection-count-updated', (data) => {
+    document.getElementById('device-current').textContent = data.current;
+    document.getElementById('device-max').textContent = data.max;
+  });
+
+  // ─── License info (ready section) ───
+  async function loadLicenseInfo() {
+    try {
+      const info = await api.invoke('get-license-info');
+      if (!info) return;
+
+      if (info.isTrial) {
+        // Trial mode
+        document.getElementById('ready-license-title').textContent = 'Periodo de prueba';
+        document.getElementById('info-serial').textContent = 'Prueba gratuita';
+        document.getElementById('info-plan').textContent = 'Completo (todas las funciones)';
+        const endsAt = info.trialEndsAt ? info.trialEndsAt.substring(0, 10).split('-').reverse().join('-') : '\u2014';
+        document.getElementById('info-expires').textContent = endsAt;
+
+        // Show trial badge
+        const trialStatus = await api.invoke('get-trial-status');
+        if (trialStatus && trialStatus.isTrial) {
+          updateTrialBadge(trialStatus.daysRemaining);
+        }
+      } else {
+        // Normal license
+        document.getElementById('ready-license-title').textContent = 'Licencia';
+        document.getElementById('info-serial').textContent = info.licenseKey || '\u2014';
+        document.getElementById('info-plan').textContent = info.plan || '\u2014';
+        document.getElementById('info-expires').textContent = info.expiresAt ? info.expiresAt.substring(0, 10).split('-').reverse().join('-') : '\u2014';
+        // Hide trial elements
+        document.getElementById('trial-badge').style.display = 'none';
+        document.getElementById('trial-cta').style.display = 'none';
+      }
+    } catch {}
+  }
+
+  function updateTrialBadge(daysRemaining) {
+    const badge = document.getElementById('trial-badge');
+    const badgeText = document.getElementById('trial-badge-text');
+    const cta = document.getElementById('trial-cta');
+
+    badge.style.display = 'flex';
+    cta.style.display = 'block';
+    badgeText.textContent = 'Periodo de prueba: ' + daysRemaining + ' dia' + (daysRemaining !== 1 ? 's' : '') + ' restante' + (daysRemaining !== 1 ? 's' : '');
+
+    if (daysRemaining <= 3) {
+      badge.className = 'trial-badge danger';
+    } else {
+      badge.className = 'trial-badge warning';
+    }
+  }
+
+  api.on('show-section', (section) => {
+    if (section === 'ready') loadLicenseInfo();
+  });
+
+  api.on('trial-status-updated', (status) => {
+    if (status && status.isTrial) {
+      updateTrialBadge(status.daysRemaining);
+    }
+  });
+
+  // ─── Update status ───
+  api.on('update-status', (status) => {
+    updateStatusUI(status);
+  });
+
+  function updateStatusUI(status) {
+    const area = document.getElementById('update-area');
+    const children = ['update-checking', 'update-available', 'update-backing-up', 'update-downloading', 'update-uptodate', 'update-error'];
+    children.forEach(id => document.getElementById(id).style.display = 'none');
+    area.style.display = 'block';
+
+    switch (status.state) {
+      case 'checking':
+        document.getElementById('update-checking').style.display = 'flex';
+        break;
+      case 'available':
+        document.getElementById('update-version').textContent = status.version || '';
+        document.getElementById('update-available').style.display = 'block';
+        break;
+      case 'backing-up':
+        document.getElementById('update-backing-up').style.display = 'flex';
+        break;
+      case 'downloading':
+        document.getElementById('update-downloading').style.display = 'block';
+        document.getElementById('update-progress-fill').style.width = (status.progress || 0) + '%';
+        document.getElementById('update-progress-text').textContent = (status.progress || 0) + '%';
+        break;
+      case 'up-to-date':
+        document.getElementById('current-version').textContent = status.version || '';
+        document.getElementById('update-uptodate').style.display = 'block';
+        break;
+      case 'error':
+        // Network/DNS errors are not critical — silently ignore them
+        // Only show real update errors (e.g. download failures with a version available)
+        if (status.error && (status.error.includes('ERR_NAME') || status.error.includes('ENOTFOUND') || status.error.includes('ETIMEDOUT') || status.error.includes('EAI_AGAIN') || status.error.includes('ECONNREFUSED'))) {
+          area.style.display = 'none';
+        } else {
+          document.getElementById('update-error-text').textContent = status.error || 'Error al buscar actualizaciones';
+          document.getElementById('update-error').style.display = 'block';
+        }
+        break;
+      case 'idle':
+      case 'downloaded':
+        area.style.display = 'none';
+        break;
+    }
+  }
+
+  async function handleInstallUpdate() {
+    await api.invoke('install-update');
+  }
+
+  function dismissUpdate() {
+    document.getElementById('update-area').style.display = 'none';
+  }
+
+  // ─── Init ───
+  (async function init() {
+    // Load fingerprint
+    try {
+      const fp = await api.invoke('get-fingerprint');
+      document.getElementById('fingerprint-display').textContent = fp;
+    } catch {
+      document.getElementById('fingerprint-display').textContent = 'No disponible';
+    }
+
+    // Load connection count
+    try {
+      const count = await api.invoke('get-connection-count');
+      if (count) {
+        document.getElementById('device-current').textContent = count.current;
+        document.getElementById('device-max').textContent = count.max;
+      }
+    } catch {}
+  })();
+</script>
+</body>
+</html>

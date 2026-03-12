@@ -1,0 +1,160 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1771022602688,
+      "tag": "0000_ordinary_penance",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1771109002688,
+      "tag": "0001_add_remissions_and_fiscal",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1771195402688,
+      "tag": "0002_add_payables_module",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1771101457690,
+      "tag": "0003_narrow_dust",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1771281802688,
+      "tag": "0004_align_credit_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1771368202688,
+      "tag": "0005_cloud_sync_integration",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1771454602688,
+      "tag": "0006_sell_by_weight",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1771541002688,
+      "tag": "0007_add_unit_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1771627402688,
+      "tag": "0008_add_missing_product_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1771713802688,
+      "tag": "0009_add_users_cloud_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1771800202688,
+      "tag": "0010_add_price_lists_cloud_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1771886602688,
+      "tag": "0011_add_product_stock_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1771973002688,
+      "tag": "0012_unique_sku",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1772059402688,
+      "tag": "0013_add_system_roles",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1772145802688,
+      "tag": "0017_add_register_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1772232202688,
+      "tag": "0018_online_orders",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1772318602688,
+      "tag": "0019_multicaja",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1772405002688,
+      "tag": "0020_ticket_number_and_returns",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1772491402688,
+      "tag": "0021_cfdi_invoice_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1772577802688,
+      "tag": "0022_cfdi_invoicing_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1772664202688,
+      "tag": "0023_add_missing_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1772750602688,
+      "tag": "0024_add_max_discount_percent",
+      "breakpoints": true
+    }
+  ]
+}

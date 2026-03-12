@@ -1,0 +1,19 @@
+appId: com.todoenlocal.nominas
+productName: enLocal Nóminas
+directories:
+  buildResources: assets
+  output: release
+files:
+  - electron/**/*
+  - webapp/dist/**/*
+  - package.json
+win:
+  target: nsis
+  icon: assets/icon.ico
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: assets/icon.ico
+publish:
+  provider: generic
+  url: https://updates.todoenlocal.com/nominas

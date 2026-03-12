@@ -1,0 +1,36 @@
+{
+  "name": "@enlocal/erp",
+  "version": "1.0.0",
+  "private": true,
+  "main": "electron/main.ts",
+  "scripts": {
+    "dev": "concurrently \"pnpm dev:web\" \"pnpm dev:electron\"",
+    "dev:web": "cd webapp && vite",
+    "dev:electron": "electron .",
+    "build": "cd webapp && vite build",
+    "package": "electron-builder --config electron-builder.yml",
+    "clean": "rm -rf dist release webapp/dist"
+  },
+  "dependencies": {
+    "@enlocal/core-electron": "workspace:*",
+    "@enlocal/core-license": "workspace:*",
+    "@enlocal/core-updater": "workspace:*",
+    "@enlocal/core-db": "workspace:*",
+    "@enlocal/core-server": "workspace:*",
+    "@enlocal/core-sync": "workspace:*",
+    "@enlocal/mod-config": "workspace:*",
+    "@enlocal/mod-catalogs": "workspace:*",
+    "@enlocal/mod-invoicing": "workspace:*",
+    "@enlocal/mod-inventory": "workspace:*",
+    "@enlocal/mod-pos": "workspace:*",
+    "@enlocal/mod-payroll": "workspace:*",
+    "@enlocal/mod-reports": "workspace:*",
+    "@enlocal/mod-appointments": "workspace:*"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^25.0.0",
+    "concurrently": "^9.0.0",
+    "typescript": "^5.6.0"
+  }
+}

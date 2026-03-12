@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": false,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "paths": {
+      "@enlocal/core-electron": ["./packages/core-electron/src"],
+      "@enlocal/core-license": ["./packages/core-license/src"],
+      "@enlocal/core-updater": ["./packages/core-updater/src"],
+      "@enlocal/core-db": ["./packages/core-db/src"],
+      "@enlocal/core-server": ["./packages/core-server/src"],
+      "@enlocal/core-sync": ["./packages/core-sync/src"],
+      "@enlocal/core-printing": ["./packages/core-printing/src"],
+      "@enlocal/react-hooks": ["./packages/react-hooks/src"],
+      "@enlocal/react-components": ["./packages/react-components/src"],
+      "@enlocal/mod-config": ["./packages/mod-config/src"],
+      "@enlocal/mod-catalogs": ["./packages/mod-catalogs/src"],
+      "@enlocal/mod-invoicing": ["./packages/mod-invoicing/src"],
+      "@enlocal/mod-payroll": ["./packages/mod-payroll/src"],
+      "@enlocal/mod-pos": ["./packages/mod-pos/src"],
+      "@enlocal/mod-inventory": ["./packages/mod-inventory/src"],
+      "@enlocal/mod-appointments": ["./packages/mod-appointments/src"],
+      "@enlocal/mod-reports": ["./packages/mod-reports/src"],
+      "@enlocal/mod-remissions": ["./packages/mod-remissions/src"],
+      "@enlocal/mod-quotes": ["./packages/mod-quotes/src"]
+    }
+  },
+  "exclude": ["node_modules", "dist"]
+}
