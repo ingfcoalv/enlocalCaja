@@ -5,12 +5,13 @@ import { v4 as uuidv4 } from 'uuid'
 
 /**
  * Handle an incoming online order from the marketplace via WebSocket.
- * Adapted from comanda-pro handleNewOrder — uses invoices/invoice_items tables.
  *
  * Cloud sends order data with:
  *   - items[].subtotal (NOT amount) = unit_price * quantity
- *   - No separate tax field — calculate as total - subtotal
- *   - idempotency_key for envelope messages (order.new)
+ *   - payment_method: cash_on_pickup | card_on_pickup | cash_on_delivery | card_on_delivery
+ *   - payment_status: pending | paid
+ *   - items[].modifier_selections: array of modifier objects
+ *   - items[].special_instructions: per-item notes
  *   - order_number for human-readable reference
  */
 export async function handleIncomingOnlineOrder(
@@ -60,17 +61,17 @@ export async function handleIncomingOnlineOrder(
     const customerPhone = orderData.customer_phone || null
     const deliveryType = orderData.delivery_type || 'pickup'
     const orderNumber = orderData.order_number || null
+    const paymentMethodCloud = orderData.payment_method || null
+    const paymentStatusCloud = orderData.payment_status || 'pending'
+    const deliveryAddress = orderData.delivery_address || null
 
-    // Build observations from notes + special instructions
+    // Build observations from notes (keep it concise — structured data now in columns)
     const parts: string[] = []
     if (orderNumber) parts.push(`Pedido: ${orderNumber}`)
     if (orderData.notes) parts.push(orderData.notes)
-    if (orderData.delivery_address) parts.push(`Direccion: ${orderData.delivery_address}`)
-    if (orderData.payment_method) parts.push(`Pago: ${orderData.payment_method}`)
     const observations = parts.length > 0 ? parts.join(' | ') : 'Pedido Online'
 
     // Resolve items — cloud uses item.subtotal (NOT item.amount)
-    // HIGH FIX 3: Validate items is actually an array
     const items = Array.isArray(orderData.items) ? orderData.items : []
 
     const resolvedItems: Array<{
@@ -81,6 +82,7 @@ export async function handleIncomingOnlineOrder(
       unitPrice: number
       amount: number
       specialInstructions: string | null
+      modifierSelections: any[] | null
     }> = []
 
     for (const item of items) {
@@ -95,11 +97,8 @@ export async function handleIncomingOnlineOrder(
         productName = prodRows[0]?.name || null
       }
 
-      // HIGH FIX 5: Proper number handling instead of implicit coercion
       const qty = Number.isFinite(Number(item.quantity)) ? Number(item.quantity) || 1 : 1
-      // HIGH FIX 4: Validate numeric values to prevent NaN
       const unitPrice = Number.isFinite(Number(item.unit_price)) ? Number(item.unit_price) : 0
-      // Cloud sends "subtotal" (= unit_price * qty), NOT "amount"
       const rawSubtotal = item.subtotal != null
         ? Number(item.subtotal)
         : item.amount != null
@@ -107,8 +106,23 @@ export async function handleIncomingOnlineOrder(
           : Math.round((qty * unitPrice + Number.EPSILON) * 100) / 100
       const amount = Number.isFinite(rawSubtotal) ? rawSubtotal : 0
 
+      // Build description: product name + modifiers summary
       let description = item.product_name || productName || item.name || 'Producto'
-      // Append special instructions if present
+
+      // Append modifier selections summary to description for readability
+      const modifiers = Array.isArray(item.modifier_selections) ? item.modifier_selections : null
+      if (modifiers && modifiers.length > 0) {
+        const modSummary = modifiers
+          .map((m: any) => {
+            const selected = Array.isArray(m.selected) ? m.selected.join(', ') : ''
+            return selected
+          })
+          .filter(Boolean)
+          .join('; ')
+        if (modSummary) description += ` [${modSummary}]`
+      }
+
+      // Append special instructions
       if (item.special_instructions) {
         description += ` (${item.special_instructions})`
       }
@@ -125,11 +139,11 @@ export async function handleIncomingOnlineOrder(
         unitPrice,
         amount,
         specialInstructions: item.special_instructions || null,
+        modifierSelections: modifiers,
       })
     }
 
     // Cloud does NOT send tax separately — calculate as total - subtotal
-    // HIGH FIX 4: Validate numeric values to prevent NaN
     const subtotal = Number.isFinite(Number(orderData.subtotal)) ? Number(orderData.subtotal) : 0
     const total = Number.isFinite(Number(orderData.total)) ? Number(orderData.total) : 0
     const rawTax = orderData.tax != null ? Number(orderData.tax) : Math.round((total - subtotal + Number.EPSILON) * 100) / 100
@@ -141,18 +155,21 @@ export async function handleIncomingOnlineOrder(
         subtotal, tax, total,
         cloud_id, cloud_status, delivery_type_cloud,
         customer_name, customer_phone, observations,
+        payment_method_cloud, payment_status_cloud, delivery_address, order_number,
         created_by, created_at, updated_at
       ) VALUES (
         $1, 'I', 'draft', 'online', 'online',
         $2, $3, $4,
         $5, 'new', $6,
         $7, $8, $9,
-        $10, $11, $12
+        $10, $11, $12, $13,
+        $14, $15, $16
       ) ON CONFLICT (cloud_id) WHERE cloud_id IS NOT NULL DO NOTHING`,
       [
         invoiceId, subtotal, tax, total,
         orderData.id, deliveryType,
         customerName, customerPhone, observations,
+        paymentMethodCloud, paymentStatusCloud, deliveryAddress, orderNumber,
         userId, now, now,
       ],
     )
@@ -164,20 +181,26 @@ export async function handleIncomingOnlineOrder(
       return
     }
 
-    for (const item of resolvedItems) {
+    for (let i = 0; i < resolvedItems.length; i++) {
+      const item = resolvedItems[i]
       await client.query(
         `INSERT INTO invoice_items (
           id, invoice_id, product_id,
           description, quantity, unit_price, amount,
-          sort_order
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [item.id, invoiceId, item.productId, item.description, item.qty, item.unitPrice, item.amount, 0],
+          sort_order, special_instructions, modifier_selections
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          item.id, invoiceId, item.productId,
+          item.description, item.qty, item.unitPrice, item.amount,
+          i, item.specialInstructions,
+          item.modifierSelections ? JSON.stringify(item.modifierSelections) : null,
+        ],
       )
     }
 
     await client.query('COMMIT')
 
-    console.log(`[online-order] Created invoice ${invoiceId} (cloud: ${orderData.id}, order: ${orderNumber || 'N/A'})`)
+    console.log(`[online-order] Created invoice ${invoiceId} (cloud: ${orderData.id}, order: ${orderNumber || 'N/A'}, payment: ${paymentStatusCloud}/${paymentMethodCloud})`)
 
     // Fetch the full order with items for the socket emission (outside transaction, read-only)
     const { rows: fullRows } = await pool.query(
@@ -228,7 +251,7 @@ export async function handleDeliveryStatusUpdate(
 
     // Find the local invoice by cloud_id
     const { rows } = await client.query(
-      "SELECT id, cloud_status, cloud_id, total, created_by FROM invoices WHERE cloud_id = $1 AND source = 'online'",
+      "SELECT id, cloud_status, cloud_id, total, created_by, payment_method_cloud, payment_status_cloud FROM invoices WHERE cloud_id = $1 AND source = 'online'",
       [cloudOrderId],
     )
     const invoice = rows[0]
@@ -252,14 +275,19 @@ export async function handleDeliveryStatusUpdate(
         [invoice.id],
       )
 
-      // HIGH FIX 4: Validate total before inserting payment
       const paymentAmount = Number.isFinite(Number(invoice.total)) ? Number(invoice.total) : 0
+
+      // Determine payment method from cloud payment_method
+      const cloudMethod = invoice.payment_method_cloud || ''
+      let payMethod = 'transfer'
+      if (cloudMethod.startsWith('cash')) payMethod = 'cash'
+      else if (cloudMethod.startsWith('card')) payMethod = 'card'
 
       try {
         await client.query(
           `INSERT INTO payments (invoice_id, method, amount, reference, user_id)
-           VALUES ($1, 'transfer', $2, $3, $4)`,
-          [invoice.id, paymentAmount, 'Pago online marketplace', invoice.created_by],
+           VALUES ($1, $2, $3, $4, $5)`,
+          [invoice.id, payMethod, paymentAmount, 'Pago online marketplace', invoice.created_by],
         )
       } catch (payErr: any) {
         console.error('[delivery-status] Payment insert error (non-critical):', payErr.message)
@@ -272,7 +300,6 @@ export async function handleDeliveryStatusUpdate(
       )
       for (const item of invoiceItems) {
         if (!item.product_id) continue
-        // HIGH FIX 5: Proper number handling instead of String(item.quantity)
         const qty = Number.isFinite(Number(item.quantity)) ? Number(item.quantity) || 1 : 1
         try {
           await client.query(
@@ -300,7 +327,9 @@ export async function handleDeliveryStatusUpdate(
             'id', ii.id, 'product_id', ii.product_id,
             'description', ii.description, 'quantity', ii.quantity,
             'unit_price', ii.unit_price, 'amount', ii.amount,
-            'product_name', p.name
+            'product_name', p.name,
+            'special_instructions', ii.special_instructions,
+            'modifier_selections', ii.modifier_selections
           ) ORDER BY ii.sort_order
         ) FILTER (WHERE ii.id IS NOT NULL),
         '[]'::json

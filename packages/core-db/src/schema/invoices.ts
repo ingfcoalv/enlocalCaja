@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, boolean, timestamp, numeric, integer, index } from 'drizzle-orm/pg-core'
+import { pgTable, uuid, text, boolean, timestamp, numeric, integer, index, jsonb } from 'drizzle-orm/pg-core'
 import { customers } from './customers'
 import { products } from './products'
 import { services } from './services'
@@ -99,6 +99,10 @@ export const invoices = pgTable('invoices', {
   deliveryTypeCloud: text('delivery_type_cloud'),
   customerName: text('customer_name'),
   customerPhone: text('customer_phone'),
+  paymentMethodCloud: text('payment_method_cloud'),
+  paymentStatusCloud: text('payment_status_cloud'),
+  deliveryAddress: text('delivery_address'),
+  orderNumber: text('order_number'),
 
   // ─── Auditoría ────────────────────────────────────────────
   observations: text('observations'),
@@ -164,6 +168,10 @@ export const invoiceItems = pgTable('invoice_items', {
   taxRate: numeric('tax_rate', { precision: 5, scale: 4 }).notNull().default('0.1600'),
 
   sortOrder: integer('sort_order').notNull().default(0),
+
+  // Online order item details
+  specialInstructions: text('special_instructions'),
+  modifierSelections: jsonb('modifier_selections'),
 })
 
 export type Invoice = typeof invoices.$inferSelect

@@ -1,6 +1,12 @@
 import { create } from 'zustand'
 import { api } from '@enlocal/react-hooks'
 
+export interface ModifierSelection {
+  modifier_group: string
+  selected: string[]
+  price: number | null
+}
+
 export interface OnlineOrderItem {
   id: string
   product_id: string | null
@@ -9,6 +15,8 @@ export interface OnlineOrderItem {
   unit_price: string
   amount: string
   product_name: string | null
+  special_instructions: string | null
+  modifier_selections: ModifierSelection[] | null
 }
 
 export interface OnlineOrder {
@@ -24,6 +32,10 @@ export interface OnlineOrder {
   observations: string | null
   items: OnlineOrderItem[]
   created_at: string
+  payment_method_cloud: string | null
+  payment_status_cloud: string | null
+  delivery_address: string | null
+  order_number: string | null
 }
 
 interface OnlineOrderStore {

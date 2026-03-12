@@ -155,6 +155,13 @@
       "when": 1772750602688,
       "tag": "0024_add_max_discount_percent",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1772837002688,
+      "tag": "0025_online_order_payment_fields",
+      "breakpoints": true
     }
   ]
 }

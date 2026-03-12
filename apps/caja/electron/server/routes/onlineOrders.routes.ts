@@ -6,7 +6,6 @@ import { authMiddleware } from '@enlocal/core-server'
 const ACTIVE_STATUSES = ['new', 'pending', 'preparing', 'ready_for_pickup', 'ready', 'waiting_driver', 'in_transit', 'delivery_failed']
 const ALLOWED_STATUSES = ['preparing', 'ready', 'ready_for_pickup', 'waiting_driver', 'in_transit', 'delivered', 'delivery_failed', 'cancelled']
 
-// Bug 19 fix: valid status transitions
 const VALID_TRANSITIONS: Record<string, string[]> = {
   new: ['preparing', 'cancelled'],
   pending: ['preparing', 'cancelled'],
@@ -28,7 +27,9 @@ const ITEMS_JSON_AGG = `
         'quantity', ii.quantity,
         'unit_price', ii.unit_price,
         'amount', ii.amount,
-        'product_name', p.name
+        'product_name', p.name,
+        'special_instructions', ii.special_instructions,
+        'modifier_selections', ii.modifier_selections
       ) ORDER BY ii.sort_order
     ) FILTER (WHERE ii.id IS NOT NULL),
     '[]'::json
@@ -37,7 +38,6 @@ const ITEMS_JSON_AGG = `
 export function createOnlineOrderRoutes(pool: Pool) {
   const router = Router()
 
-  // Bug 11 fix: require authentication
   router.use(authMiddleware as any)
 
   // GET /api/online-orders — list active online orders
@@ -57,6 +57,168 @@ export function createOnlineOrderRoutes(pool: Pool) {
       res.json(rows)
     } catch (err: any) {
       console.error('[online-orders] GET error:', err)
+      res.status(500).json({ error: err.message })
+    }
+  })
+
+  // GET /api/online-orders/:id/receipt — generate printable receipt text for an online order
+  router.get('/:id/receipt', async (req, res) => {
+    try {
+      const { id } = req.params
+
+      // Fetch invoice with all online-specific fields
+      const { rows: invoiceRows } = await pool.query(
+        `SELECT * FROM invoices WHERE id = $1 AND source = 'online'`,
+        [id],
+      )
+      const invoice = invoiceRows[0]
+      if (!invoice) {
+        return res.status(404).json({ error: 'Online order not found' })
+      }
+
+      // Fetch items
+      const { rows: items } = await pool.query(
+        `SELECT ii.*, p.name as product_name
+         FROM invoice_items ii
+         LEFT JOIN products p ON ii.product_id = p.id
+         WHERE ii.invoice_id = $1
+         ORDER BY ii.sort_order`,
+        [id],
+      )
+
+      // Generate receipt text
+      const W = 40
+      const SEP = '-'.repeat(W)
+      const DSEP = '='.repeat(W)
+      const lines: string[] = []
+
+      const center = (t: string) => {
+        if (t.length >= W) return t.substring(0, W)
+        return ' '.repeat(Math.floor((W - t.length) / 2)) + t
+      }
+      const padR = (s: string, n: number) => s.length >= n ? s.substring(0, n) : s + ' '.repeat(n - s.length)
+      const padL = (s: string, n: number) => s.length >= n ? s.substring(0, n) : ' '.repeat(n - s.length) + s
+      const money = (v: number) => `$${v.toFixed(2)}`
+
+      // Header
+      lines.push(center('PEDIDO ONLINE'))
+      lines.push(SEP)
+
+      // Order number
+      if (invoice.order_number) {
+        lines.push(`Pedido: ${invoice.order_number}`)
+      } else if (invoice.cloud_id) {
+        lines.push(`Pedido: #${invoice.cloud_id.slice(-6).toUpperCase()}`)
+      }
+
+      lines.push(`Fecha: ${new Date(invoice.created_at).toLocaleString('es-MX')}`)
+
+      // Delivery type
+      const isPickup = (invoice.delivery_type_cloud || 'pickup') === 'pickup'
+      lines.push(`Tipo: ${isPickup ? 'RECOGER EN TIENDA' : 'ENTREGA A DOMICILIO'}`)
+
+      // Payment info
+      const paymentStatus = invoice.payment_status_cloud || 'pending'
+      const paymentMethod = invoice.payment_method_cloud || ''
+      if (paymentStatus === 'paid') {
+        lines.push('Estado pago: PAGADO')
+      } else {
+        lines.push('Estado pago: POR COBRAR')
+        if (paymentMethod) {
+          lines.push(`Cobra con: ${getPaymentMethodLabel(paymentMethod)}`)
+        }
+      }
+
+      lines.push(SEP)
+
+      // Customer info
+      lines.push(`Cliente: ${invoice.customer_name || 'N/A'}`)
+      if (invoice.customer_phone) {
+        lines.push(`Tel: ${invoice.customer_phone}`)
+      }
+
+      // Delivery address
+      if (!isPickup && invoice.delivery_address) {
+        lines.push(`Direccion: ${invoice.delivery_address}`)
+      }
+
+      lines.push(SEP)
+
+      // Items header
+      lines.push(padR('Descripcion', 20) + padL('Cant', 6) + padL('Importe', 14))
+      lines.push(SEP)
+
+      // Items
+      for (const item of items) {
+        const desc = (item.product_name || item.description || 'Producto').substring(0, 20)
+        const qty = parseFloat(item.quantity || '1')
+        const amount = parseFloat(item.amount || '0')
+        const unitPrice = parseFloat(item.unit_price || '0')
+
+        lines.push(padR(desc, 20) + padL(String(qty), 6) + padL(money(amount), 14))
+
+        if (qty > 1) {
+          lines.push(`  ${money(unitPrice)} c/u`)
+        }
+
+        // Modifier selections
+        const modifiers = item.modifier_selections
+        if (Array.isArray(modifiers) && modifiers.length > 0) {
+          for (const mod of modifiers) {
+            const selected = Array.isArray(mod.selected) ? mod.selected.join(', ') : ''
+            if (selected) {
+              const modPrice = mod.price ? ` +${money(mod.price)}` : ''
+              lines.push(`  + ${selected}${modPrice}`)
+            }
+          }
+        }
+
+        // Special instructions
+        if (item.special_instructions) {
+          lines.push(`  * ${item.special_instructions}`)
+        }
+      }
+
+      lines.push(SEP)
+
+      // Totals
+      const subtotal = parseFloat(invoice.subtotal || '0')
+      const tax = parseFloat(invoice.tax || '0')
+      const total = parseFloat(invoice.total || '0')
+
+      lines.push(padR('Subtotal:', 26) + padL(money(subtotal), 14))
+      if (tax > 0) {
+        lines.push(padR('IVA:', 26) + padL(money(tax), 14))
+      }
+      lines.push(DSEP)
+      lines.push(padR('TOTAL:', 26) + padL(money(total), 14))
+      lines.push(DSEP)
+
+      // Payment status highlight
+      lines.push('')
+      if (paymentStatus === 'paid') {
+        lines.push(center('*** YA PAGADO ***'))
+      } else {
+        lines.push(center('*** COBRAR AL CLIENTE ***'))
+        if (paymentMethod) {
+          lines.push(center(getPaymentMethodLabel(paymentMethod)))
+        }
+      }
+
+      // Notes
+      if (invoice.observations && invoice.observations !== 'Pedido Online') {
+        lines.push('')
+        lines.push(`Notas: ${invoice.observations}`)
+      }
+
+      lines.push('')
+      lines.push(SEP)
+      lines.push(center('Pedido Online - todoEnLocal'))
+      lines.push('')
+
+      res.type('text/plain').send(lines.join('\n'))
+    } catch (err: any) {
+      console.error('[online-orders] Receipt error:', err)
       res.status(500).json({ error: err.message })
     }
   })
@@ -81,7 +243,7 @@ export function createOnlineOrderRoutes(pool: Pool) {
         return res.status(404).json({ error: 'Online order not found' })
       }
 
-      // Bug 19 fix: validate status transition
+      // Validate status transition
       const currentStatus = invoice.cloud_status || 'new'
       const validNextStatuses = VALID_TRANSITIONS[currentStatus]
       if (!validNextStatuses || !validNextStatuses.includes(status)) {
@@ -112,23 +274,28 @@ export function createOnlineOrderRoutes(pool: Pool) {
           [id],
         )
 
-        // Create payment record (Bug 4 fix: wrapped in try/catch)
+        // Determine payment method from cloud payment_method
+        const cloudMethod = invoice.payment_method_cloud || ''
+        let payMethod = 'transfer'
+        if (cloudMethod.startsWith('cash')) payMethod = 'cash'
+        else if (cloudMethod.startsWith('card')) payMethod = 'card'
+
         try {
           await pool.query(
             `INSERT INTO payments (invoice_id, method, amount, reference, user_id)
-             VALUES ($1, 'transfer', $2, $3, $4)`,
-            [id, invoice.total, 'Pago online marketplace', invoice.created_by],
+             VALUES ($1, $2, $3, $4, $5)`,
+            [id, payMethod, invoice.total, 'Pago online marketplace', invoice.created_by],
           )
         } catch (payErr: any) {
           console.error('[online-orders] Payment insert error (non-critical):', payErr.message)
         }
 
         // Deduct inventory
-        const { rows: items } = await pool.query(
+        const { rows: orderItems } = await pool.query(
           'SELECT product_id, quantity FROM invoice_items WHERE invoice_id = $1',
           [id],
         )
-        for (const item of items) {
+        for (const item of orderItems) {
           if (!item.product_id) continue
           try {
             await pool.query(
@@ -141,7 +308,7 @@ export function createOnlineOrderRoutes(pool: Pool) {
               [String(item.quantity), item.product_id],
             )
           } catch {
-            // Non-critical: stock_movements table may not exist if mod-inventory not loaded
+            // Non-critical
           }
         }
       }
@@ -170,4 +337,14 @@ export function createOnlineOrderRoutes(pool: Pool) {
   })
 
   return router
+}
+
+function getPaymentMethodLabel(method: string): string {
+  switch (method) {
+    case 'cash_on_pickup': return 'Efectivo al recoger'
+    case 'card_on_pickup': return 'Tarjeta al recoger'
+    case 'cash_on_delivery': return 'Efectivo contra entrega'
+    case 'card_on_delivery': return 'Tarjeta contra entrega'
+    default: return method
+  }
 }
