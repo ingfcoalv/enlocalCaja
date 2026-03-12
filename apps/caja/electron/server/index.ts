@@ -240,9 +240,16 @@ export async function startServer(config: {
   const terminalToken = getTerminalToken()
   if (terminalToken && !config.isTrialMode) {
     try {
+      const fingerprint = generateFingerprint()
+      const licenseFile = readLicenseFile(fingerprint)
+      const branchId = licenseFile?.branchId || ''
+      if (!branchId) {
+        console.warn('[server] WARNING: branchId not found in license file — WebSocket may not connect')
+      }
+
       const syncEngine = new SyncEngine(pool, {
         cloudApiUrl: process.env.CLOUD_API_URL || 'https://todoenlocal.com',
-        branchId: '', // Will be resolved from license file
+        branchId,
         getTerminalToken: () => getTerminalToken() || '',
         getFingerprint: () => generateFingerprint(),
         hashPin: (pin: string) => bcrypt.hash(pin, 10),
@@ -352,7 +359,9 @@ export async function startServer(config: {
   })
 
   // 3.2 — Listen on 0.0.0.0 for LAN access with port conflict handling
-  return new Promise<{ httpServer: http.Server; io: SocketServer; backupScheduler: BackupScheduler }>((resolve, reject) => {
+  const syncEngine = app.get('syncEngine') as SyncEngine | undefined
+
+  return new Promise<{ httpServer: http.Server; io: SocketServer; backupScheduler: BackupScheduler; pool: Pool; syncEngine?: SyncEngine }>((resolve, reject) => {
     httpServer.on('error', (err: any) => {
       if (err.code === 'EADDRINUSE') {
         reject(new Error(`El puerto ${config.port} ya está en uso. Cierra otras instancias de ${config.dbName || 'enLocal'} e intenta de nuevo.`))
@@ -362,7 +371,7 @@ export async function startServer(config: {
     })
     httpServer.listen(config.port, '0.0.0.0', () => {
       console.log(`[server] Listening on 0.0.0.0:${config.port}`)
-      resolve({ httpServer, io, backupScheduler })
+      resolve({ httpServer, io, backupScheduler, pool, syncEngine })
     })
   })
 }

@@ -128,6 +128,13 @@ router.put('/me/pin', async (req: Request, res: Response) => {
  */
 router.put('/:id', requirePermission('users.update') as any, async (req: Request, res: Response) => {
   try {
+    const id = req.params.id
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuidRegex.test(id)) {
+      res.status(400).json({ error: 'VALIDATION_ERROR', message: 'ID debe ser un UUID válido' })
+      return
+    }
+
     const parsed = updateUserSchema.safeParse(req.body)
     if (!parsed.success) {
       res.status(400).json({
@@ -139,7 +146,7 @@ router.put('/:id', requirePermission('users.update') as any, async (req: Request
 
     const authReq = req as AuthenticatedRequest
     const db = req.app.get('db')
-    const result = await updateUser(db, req.params.id, parsed.data, authReq.user!.id)
+    const result = await updateUser(db, id, parsed.data, authReq.user!.id)
     res.json(result)
   } catch (err: any) {
     if (err.message === 'USER_NOT_FOUND') {
@@ -160,6 +167,14 @@ router.put('/:id', requirePermission('users.update') as any, async (req: Request
  */
 router.put('/:id/pin', requirePermission('users.update') as any, async (req: Request, res: Response) => {
   try {
+    const id = req.params.id
+    // Validate UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuidRegex.test(id)) {
+      res.status(400).json({ error: 'VALIDATION_ERROR', message: 'ID debe ser un UUID válido' })
+      return
+    }
+
     const parsed = changePinSchema.safeParse(req.body)
     if (!parsed.success) {
       res.status(400).json({
@@ -171,7 +186,7 @@ router.put('/:id/pin', requirePermission('users.update') as any, async (req: Req
 
     const authReq = req as AuthenticatedRequest
     const db = req.app.get('db')
-    const result = await changePin(db, req.params.id, parsed.data.pin, authReq.user!.id)
+    const result = await changePin(db, id, parsed.data.pin, authReq.user!.id)
     res.json(result)
   } catch (err: any) {
     if (err.message === 'USER_NOT_FOUND') {
@@ -257,9 +272,16 @@ router.put('/:id/registers', requirePermission('users.update') as any, async (re
  */
 router.delete('/:id', requirePermission('users.delete') as any, async (req: Request, res: Response) => {
   try {
+    const id = req.params.id
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuidRegex.test(id)) {
+      res.status(400).json({ error: 'VALIDATION_ERROR', message: 'ID debe ser un UUID válido' })
+      return
+    }
+
     const authReq = req as AuthenticatedRequest
     const db = req.app.get('db')
-    const result = await deleteUser(db, req.params.id, authReq.user!.id)
+    const result = await deleteUser(db, id, authReq.user!.id)
     res.json(result)
   } catch (err: any) {
     if (err.message === 'USER_NOT_FOUND') {

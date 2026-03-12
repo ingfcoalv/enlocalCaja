@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   Home,
@@ -52,6 +52,7 @@ import { useAuth, useModuleAccess, useLicenseStore } from '@enlocal/react-hooks'
 import { LicenseAlert, UpdatePrompt, StampsIndicator, SyncStatusIndicator, OfflineIndicator } from '@enlocal/react-components'
 import { useSocketListeners } from '../hooks/useSocketListeners'
 import { useWarehouseBadge } from '../hooks/useWarehouseBadge'
+import { useOnlineOrderStore } from '../stores/useOnlineOrderStore'
 
 interface LayoutProps {
   children: React.ReactNode
@@ -76,7 +77,7 @@ interface NavGroup {
 const topNavItems: NavItem[] = [
   { to: '/', label: 'Inicio', icon: Home },
   { to: '/pos', label: 'Punto de Venta', icon: ShoppingCart },
-  { to: '/online-orders', label: 'Pedidos Online', icon: Globe },
+  { to: '/online-orders', label: 'Pedidos Online', icon: Globe, badge: true },
 ]
 
 // Collapsible groups
@@ -348,12 +349,16 @@ export function Layout({ children }: LayoutProps) {
   const { hasAccess: hasPayables } = useModuleAccess('payables')
   const { hasAccess: hasMulticaja } = useModuleAccess('multicaja')
   const warehouseBadgeCount = useWarehouseBadge()
+  const onlinePendingCount = useOnlineOrderStore(s => s.pendingCount)
   const newModulesAvailable = useLicenseStore(s => s.newModulesAvailable)
   const isTrial = useLicenseStore(s => s.isTrial)
   const trial = useLicenseStore(s => s.trial)
 
   // Central socket listeners
   useSocketListeners()
+
+  // Fetch online orders on mount so badge count is populated
+  useEffect(() => { useOnlineOrderStore.getState().fetchOrders() }, [])
 
   const handleLogout = () => {
     logout()
@@ -431,7 +436,12 @@ export function Layout({ children }: LayoutProps) {
         <nav className="sidebar-scroll flex-1 space-y-1 overflow-y-auto px-3 py-4">
           {/* Top standalone items */}
           {topNavItems.map((item) => (
-            <NavItemLink key={item.to} item={item} onClick={closeSidebar} />
+            <NavItemLink
+              key={item.to}
+              item={item}
+              onClick={closeSidebar}
+              badgeCount={item.to === '/online-orders' ? onlinePendingCount : undefined}
+            />
           ))}
 
           {/* Separator */}

@@ -69,11 +69,14 @@ export async function listUsers(db: any, filters: UserFilters = {}) {
     })
     .from(users)
 
-  if (conditions.length > 0) {
-    return query.where(and(...conditions)).orderBy(users.name)
-  }
+  const rows = conditions.length > 0
+    ? await query.where(and(...conditions)).orderBy(users.name)
+    : await query.orderBy(users.name)
 
-  return query.orderBy(users.name)
+  return rows.map((row: any) => ({
+    ...row,
+    maxDiscountPercent: parseFloat(row.maxDiscountPercent ?? '10'),
+  }))
 }
 
 /**
@@ -126,7 +129,12 @@ export async function getUserById(db: any, id: string) {
     }
   }
 
-  return { ...user, permissions, assignedRoleId }
+  return {
+    ...user,
+    maxDiscountPercent: parseFloat(user.maxDiscountPercent ?? '10'),
+    permissions,
+    assignedRoleId,
+  }
 }
 
 /**
@@ -188,13 +196,15 @@ export async function assignUserRole(
       .where(eq(roles.name, opts.role))
       .limit(1)
 
-    if (systemRole) {
-      await db.insert(userRoles).values({
-        id: uuidv4(),
-        userId,
-        roleId: systemRole.id,
-      })
+    if (!systemRole) {
+      throw new Error(`Role '${opts.role}' does not exist`)
     }
+
+    await db.insert(userRoles).values({
+      id: uuidv4(),
+      userId,
+      roleId: systemRole.id,
+    })
   }
 }
 
@@ -216,7 +226,7 @@ export async function createUser(db: any, data: CreateUserData, requestUserId: s
       color: data.color || null,
       photo: data.photo || null,
       active: true,
-      maxDiscountPercent: data.maxDiscountPercent != null ? String(data.maxDiscountPercent) : '100',
+      maxDiscountPercent: data.maxDiscountPercent != null ? String(data.maxDiscountPercent) : '10',
     })
     .returning({
       id: users.id,
@@ -242,7 +252,7 @@ export async function createUser(db: any, data: CreateUserData, requestUserId: s
     tableName: 'users',
     recordId: id,
     action: 'INSERT',
-    data: { name: data.name, email: data.email, role: data.role || 'staff' },
+    data: { name: data.name, email: data.email, role: data.role || 'staff', maxDiscountPercent: data.maxDiscountPercent },
     userId: requestUserId,
   })
 

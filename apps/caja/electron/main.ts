@@ -51,6 +51,12 @@ let currentConnections = 0
 // Backup scheduler reference (set after server starts)
 let backupSchedulerRef: any = null
 
+// Server resources for graceful shutdown
+let serverPoolRef: any = null
+let serverSyncEngineRef: any = null
+let serverHttpRef: any = null
+let serverIoRef: any = null
+
 // FullDumpService for pre-update backups
 let fullDumpService: any = null
 
@@ -366,7 +372,7 @@ async function startBootSequence() {
     log('[Server] Starting...')
     const pgConfig = pgManager.getConnectionConfig(config.dbName)
 
-    const { io, backupScheduler } = await startServer({
+    const { httpServer, io, backupScheduler, pool: serverPool, syncEngine: serverSyncEngine } = await startServer({
       port: config.port,
       dbName: config.dbName,
       pgPort: pgConfig.port,
@@ -395,6 +401,10 @@ async function startBootSequence() {
 
     serverRunning = true
     serverPort = config.port
+    serverPoolRef = serverPool
+    serverSyncEngineRef = serverSyncEngine
+    serverHttpRef = httpServer
+    serverIoRef = io
     log(`[Server] OK — port ${config.port}`)
 
     // Initialize backup scheduler with launcher window for notifications
@@ -808,10 +818,17 @@ app.on('before-quit', (e) => {
   isShuttingDown = true
   e.preventDefault()
 
+  // 1. Stop auto-updater
   stopAutoUpdate()
 
+  // 2. Clear trial check interval
+  if (trialCheckInterval) {
+    clearInterval(trialCheckInterval)
+    trialCheckInterval = null
+  }
+
   const doShutdown = async () => {
-    // Create closing backup if scheduler is available
+    // 3. Create closing backup if scheduler is available
     if (backupSchedulerRef) {
       try {
         await backupSchedulerRef.onAppClose()
@@ -820,6 +837,47 @@ app.on('before-quit', (e) => {
       }
     }
 
+    // 4. Stop SyncEngine (WebSocket + health checks + timers)
+    if (serverSyncEngineRef) {
+      try {
+        serverSyncEngineRef.stop()
+        log('[Shutdown] SyncEngine stopped')
+      } catch {
+        // Non-critical
+      }
+    }
+
+    // 5. Close HTTP server (stop accepting new requests)
+    if (serverHttpRef) {
+      try {
+        await new Promise<void>((resolve) => serverHttpRef.close(() => resolve()))
+        log('[Shutdown] HTTP server closed')
+      } catch {
+        // Non-critical
+      }
+    }
+
+    // 6. Disconnect all Socket.IO clients
+    if (serverIoRef) {
+      try {
+        await serverIoRef.close()
+        log('[Shutdown] Socket.IO closed')
+      } catch {
+        // Non-critical
+      }
+    }
+
+    // 7. Close DB connection pool before stopping PostgreSQL
+    if (serverPoolRef) {
+      try {
+        await serverPoolRef.end()
+        log('[Shutdown] DB pool closed')
+      } catch {
+        // Non-critical
+      }
+    }
+
+    // 8. Now safe to stop PostgreSQL
     try {
       await pgManager.shutdown()
     } catch (err: any) {

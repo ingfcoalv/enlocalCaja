@@ -29,20 +29,26 @@ export interface OnlineOrder {
 interface OnlineOrderStore {
   orders: OnlineOrder[]
   loading: boolean
+  pendingCount: number
   fetchOrders: () => Promise<void>
   updateCloudStatus: (id: string, status: string) => Promise<void>
   updateFromSocket: () => void
 }
 
+const PENDING_STATUSES = ['new', 'pending']
+
 export const useOnlineOrderStore = create<OnlineOrderStore>((set, get) => ({
   orders: [],
   loading: false,
+  pendingCount: 0,
 
   fetchOrders: async () => {
     set({ loading: true })
     try {
       const res = await api.get('/api/online-orders')
-      set({ orders: res.data, loading: false })
+      const orders: OnlineOrder[] = res.data
+      const pendingCount = orders.filter(o => PENDING_STATUSES.includes(o.cloud_status)).length
+      set({ orders, pendingCount, loading: false })
     } catch {
       set({ loading: false })
     }

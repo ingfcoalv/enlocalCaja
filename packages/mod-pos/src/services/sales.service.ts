@@ -69,7 +69,7 @@ export async function listSales(
 
   // Include POS and remission sales, but hide unpaid credit
   const conditions: any[] = [
-    inArray(invoices.source, ['pos', 'remission_note']),
+    inArray(invoices.source, ['pos', 'remission_note', 'online']),
     sql`${invoices.status} != 'credit'`,
   ]
 
@@ -264,7 +264,7 @@ export async function getSalesDashboard(
   const conditions = [
     gte(invoices.createdAt, dayStart),
     lte(invoices.createdAt, dayEnd),
-    eq(invoices.source, 'pos'),
+    inArray(invoices.source, ['pos', 'online']),
   ]
   if (registerId) {
     conditions.push(eq(invoices.registerId, registerId))
@@ -373,7 +373,7 @@ export async function getSalesSummary(
   const conditions = [
     gte(invoices.createdAt, dateFrom),
     lte(invoices.createdAt, dateTo),
-    eq(invoices.source, 'pos'),
+    inArray(invoices.source, ['pos', 'online']),
   ]
   if (registerId) {
     conditions.push(eq(invoices.registerId, registerId))

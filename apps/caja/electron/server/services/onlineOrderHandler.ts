@@ -21,13 +21,17 @@ export async function handleIncomingOnlineOrder(
 ): Promise<void> {
   if (!orderData || !orderData.id) return
 
+  const client = await pool.connect()
   try {
+    await client.query('BEGIN')
+
     // Dedup: skip if this cloud order was already received (by cloud_id)
-    const { rows: existingRows } = await pool.query(
+    const { rows: existingRows } = await client.query(
       'SELECT id FROM invoices WHERE cloud_id = $1',
       [orderData.id],
     )
     if (existingRows[0]) {
+      await client.query('ROLLBACK')
       console.log(`[online-order] Already exists (cloud: ${orderData.id}), skipping`)
       return
     }
@@ -36,17 +40,18 @@ export async function handleIncomingOnlineOrder(
     const now = new Date().toISOString()
 
     // Find admin/owner user to assign the order
-    const { rows: ownerRows } = await pool.query(
+    const { rows: ownerRows } = await client.query(
       "SELECT id FROM users WHERE role = 'admin' AND active = true LIMIT 1",
     )
     let userId = ownerRows[0]?.id
     if (!userId) {
-      const { rows: anyUserRows } = await pool.query(
+      const { rows: anyUserRows } = await client.query(
         'SELECT id FROM users WHERE active = true LIMIT 1',
       )
       userId = anyUserRows[0]?.id
     }
     if (!userId) {
+      await client.query('ROLLBACK')
       console.error('[online-order] No active user found to assign online order')
       return
     }
@@ -65,6 +70,9 @@ export async function handleIncomingOnlineOrder(
     const observations = parts.length > 0 ? parts.join(' | ') : 'Pedido Online'
 
     // Resolve items — cloud uses item.subtotal (NOT item.amount)
+    // HIGH FIX 3: Validate items is actually an array
+    const items = Array.isArray(orderData.items) ? orderData.items : []
+
     const resolvedItems: Array<{
       id: string
       productId: string | null
@@ -75,11 +83,11 @@ export async function handleIncomingOnlineOrder(
       specialInstructions: string | null
     }> = []
 
-    for (const item of orderData.items || []) {
+    for (const item of items) {
       let productId: string | null = null
       let productName: string | null = null
       if (item.product_id) {
-        const { rows: prodRows } = await pool.query(
+        const { rows: prodRows } = await client.query(
           'SELECT id, name FROM products WHERE cloud_id = $1',
           [item.product_id],
         )
@@ -87,14 +95,17 @@ export async function handleIncomingOnlineOrder(
         productName = prodRows[0]?.name || null
       }
 
-      const qty = item.quantity || 1
-      const unitPrice = item.unit_price || 0
+      // HIGH FIX 5: Proper number handling instead of implicit coercion
+      const qty = Number.isFinite(Number(item.quantity)) ? Number(item.quantity) || 1 : 1
+      // HIGH FIX 4: Validate numeric values to prevent NaN
+      const unitPrice = Number.isFinite(Number(item.unit_price)) ? Number(item.unit_price) : 0
       // Cloud sends "subtotal" (= unit_price * qty), NOT "amount"
-      const amount = item.subtotal != null
+      const rawSubtotal = item.subtotal != null
         ? Number(item.subtotal)
         : item.amount != null
           ? Number(item.amount)
           : Math.round((qty * unitPrice + Number.EPSILON) * 100) / 100
+      const amount = Number.isFinite(rawSubtotal) ? rawSubtotal : 0
 
       let description = item.product_name || productName || item.name || 'Producto'
       // Append special instructions if present
@@ -118,73 +129,64 @@ export async function handleIncomingOnlineOrder(
     }
 
     // Cloud does NOT send tax separately — calculate as total - subtotal
-    const subtotal = orderData.subtotal || 0
-    const total = orderData.total || 0
-    const tax = orderData.tax != null ? orderData.tax : Math.round((total - subtotal + Number.EPSILON) * 100) / 100
+    // HIGH FIX 4: Validate numeric values to prevent NaN
+    const subtotal = Number.isFinite(Number(orderData.subtotal)) ? Number(orderData.subtotal) : 0
+    const total = Number.isFinite(Number(orderData.total)) ? Number(orderData.total) : 0
+    const rawTax = orderData.tax != null ? Number(orderData.tax) : Math.round((total - subtotal + Number.EPSILON) * 100) / 100
+    const tax = Number.isFinite(rawTax) ? rawTax : 0
 
-    // Transaction: insert invoice + items
-    const client = await pool.connect()
-    try {
-      await client.query('BEGIN')
+    const { rowCount } = await client.query(
+      `INSERT INTO invoices (
+        id, type, status, source, source_type,
+        subtotal, tax, total,
+        cloud_id, cloud_status, delivery_type_cloud,
+        customer_name, customer_phone, observations,
+        created_by, created_at, updated_at
+      ) VALUES (
+        $1, 'I', 'draft', 'online', 'online',
+        $2, $3, $4,
+        $5, 'new', $6,
+        $7, $8, $9,
+        $10, $11, $12
+      ) ON CONFLICT (cloud_id) WHERE cloud_id IS NOT NULL DO NOTHING`,
+      [
+        invoiceId, subtotal, tax, total,
+        orderData.id, deliveryType,
+        customerName, customerPhone, observations,
+        userId, now, now,
+      ],
+    )
 
-      const { rowCount } = await client.query(
-        `INSERT INTO invoices (
-          id, type, status, source, source_type,
-          subtotal, tax, total,
-          cloud_id, cloud_status, delivery_type_cloud,
-          customer_name, customer_phone, observations,
-          created_by, created_at, updated_at
-        ) VALUES (
-          $1, 'I', 'draft', 'online', 'online',
-          $2, $3, $4,
-          $5, 'new', $6,
-          $7, $8, $9,
-          $10, $11, $12
-        ) ON CONFLICT (cloud_id) WHERE cloud_id IS NOT NULL DO NOTHING`,
-        [
-          invoiceId, subtotal, tax, total,
-          orderData.id, deliveryType,
-          customerName, customerPhone, observations,
-          userId, now, now,
-        ],
-      )
-
-      // If ON CONFLICT skipped the insert, abort
-      if (rowCount === 0) {
-        await client.query('ROLLBACK')
-        console.log(`[online-order] Duplicate detected via ON CONFLICT (cloud: ${orderData.id}), skipping`)
-        return
-      }
-
-      for (const item of resolvedItems) {
-        await client.query(
-          `INSERT INTO invoice_items (
-            id, invoice_id, product_id,
-            description, quantity, unit_price, amount,
-            sort_order
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [item.id, invoiceId, item.productId, item.description, item.qty, item.unitPrice, item.amount, 0],
-        )
-      }
-
-      await client.query('COMMIT')
-    } catch (txErr) {
+    // If ON CONFLICT skipped the insert, abort
+    if (rowCount === 0) {
       await client.query('ROLLBACK')
-      throw txErr
-    } finally {
-      client.release()
+      console.log(`[online-order] Duplicate detected via ON CONFLICT (cloud: ${orderData.id}), skipping`)
+      return
     }
+
+    for (const item of resolvedItems) {
+      await client.query(
+        `INSERT INTO invoice_items (
+          id, invoice_id, product_id,
+          description, quantity, unit_price, amount,
+          sort_order
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [item.id, invoiceId, item.productId, item.description, item.qty, item.unitPrice, item.amount, 0],
+      )
+    }
+
+    await client.query('COMMIT')
 
     console.log(`[online-order] Created invoice ${invoiceId} (cloud: ${orderData.id}, order: ${orderNumber || 'N/A'})`)
 
-    // Fetch the full order with items for the socket emission
+    // Fetch the full order with items for the socket emission (outside transaction, read-only)
     const { rows: fullRows } = await pool.query(
       'SELECT * FROM invoices WHERE id = $1',
       [invoiceId],
     )
     const fullOrder = fullRows[0]
 
-    const { rows: items } = await pool.query(
+    const { rows: orderItems } = await pool.query(
       `SELECT ii.*, p.name as product_name
        FROM invoice_items ii
        LEFT JOIN products p ON ii.product_id = p.id
@@ -195,10 +197,13 @@ export async function handleIncomingOnlineOrder(
 
     io.emit('online-order:new', {
       ...fullOrder,
-      items,
+      items: orderItems,
     })
   } catch (err: any) {
+    await client.query('ROLLBACK').catch(() => {})
     console.error('[online-order] Error handling new order:', err)
+  } finally {
+    client.release()
   }
 }
 
@@ -217,20 +222,24 @@ export async function handleDeliveryStatusUpdate(
   const newStatus = data.status // in_transit, delivered, delivery_failed
   if (!cloudOrderId || !newStatus) return
 
+  const client = await pool.connect()
   try {
+    await client.query('BEGIN')
+
     // Find the local invoice by cloud_id
-    const { rows } = await pool.query(
+    const { rows } = await client.query(
       "SELECT id, cloud_status, cloud_id, total, created_by FROM invoices WHERE cloud_id = $1 AND source = 'online'",
       [cloudOrderId],
     )
     const invoice = rows[0]
     if (!invoice) {
+      await client.query('ROLLBACK')
       console.warn(`[delivery-status] Invoice not found for cloud order ${cloudOrderId}`)
       return
     }
 
     // Update cloud_status
-    await pool.query(
+    await client.query(
       'UPDATE invoices SET cloud_status = $1, updated_at = now() WHERE id = $2',
       [newStatus, invoice.id],
     )
@@ -238,37 +247,42 @@ export async function handleDeliveryStatusUpdate(
 
     // If delivered: mark as paid + create payment + deduct inventory
     if (newStatus === 'delivered') {
-      await pool.query(
+      await client.query(
         "UPDATE invoices SET status = 'paid', updated_at = now() WHERE id = $1",
         [invoice.id],
       )
 
+      // HIGH FIX 4: Validate total before inserting payment
+      const paymentAmount = Number.isFinite(Number(invoice.total)) ? Number(invoice.total) : 0
+
       try {
-        await pool.query(
+        await client.query(
           `INSERT INTO payments (invoice_id, method, amount, reference, user_id)
            VALUES ($1, 'transfer', $2, $3, $4)`,
-          [invoice.id, invoice.total, 'Pago online marketplace', invoice.created_by],
+          [invoice.id, paymentAmount, 'Pago online marketplace', invoice.created_by],
         )
       } catch (payErr: any) {
         console.error('[delivery-status] Payment insert error (non-critical):', payErr.message)
       }
 
       // Deduct inventory
-      const { rows: items } = await pool.query(
+      const { rows: invoiceItems } = await client.query(
         'SELECT product_id, quantity FROM invoice_items WHERE invoice_id = $1',
         [invoice.id],
       )
-      for (const item of items) {
+      for (const item of invoiceItems) {
         if (!item.product_id) continue
+        // HIGH FIX 5: Proper number handling instead of String(item.quantity)
+        const qty = Number.isFinite(Number(item.quantity)) ? Number(item.quantity) || 1 : 1
         try {
-          await pool.query(
+          await client.query(
             `INSERT INTO stock_movements (ingredient_id, type, quantity, reference, notes, user_id)
              VALUES ($1, 'out', $2, $3, $4, $5)`,
-            [item.product_id, String(item.quantity), 'ONLINE-' + (invoice.cloud_id || invoice.id), 'Pedido online marketplace', invoice.created_by],
+            [item.product_id, qty, 'ONLINE-' + (invoice.cloud_id || invoice.id), 'Pedido online marketplace', invoice.created_by],
           )
-          await pool.query(
+          await client.query(
             'UPDATE products SET current_stock = current_stock - $1, updated_at = now() WHERE id = $2',
-            [String(item.quantity), item.product_id],
+            [qty, item.product_id],
           )
         } catch {
           // Non-critical: stock_movements table may not exist
@@ -276,7 +290,9 @@ export async function handleDeliveryStatusUpdate(
       }
     }
 
-    // Emit socket event to refresh frontend
+    await client.query('COMMIT')
+
+    // Emit socket event to refresh frontend (outside transaction, read-only)
     const ITEMS_JSON_AGG = `
       COALESCE(
         json_agg(
@@ -301,6 +317,9 @@ export async function handleDeliveryStatusUpdate(
 
     io.emit('online-order:updated', updatedRows[0])
   } catch (err: any) {
+    await client.query('ROLLBACK').catch(() => {})
     console.error('[delivery-status] Error handling delivery status update:', err)
+  } finally {
+    client.release()
   }
 }

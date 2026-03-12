@@ -1,8 +1,8 @@
 import { Router } from 'express'
 import type { AuthenticatedRequest } from '@enlocal/core-server'
 import { requirePermission } from '@enlocal/core-server'
-import { invoices, invoiceItems, customers } from '@enlocal/core-db'
-import { eq, sql } from 'drizzle-orm'
+import { customers } from '@enlocal/core-db'
+import { eq } from 'drizzle-orm'
 import { listSales, getSalesDashboard, getSalesSummary, getSaleDetail } from '../services/sales.service'
 import { buildSalePayload } from '@enlocal/core-sync'
 import { getCurrentShift } from '../services/cashShifts.service'
@@ -25,7 +25,7 @@ router.post(
       }
 
       // 2.5 — Validate item quantities, prices and discounts
-      const maxDiscountPct = parseFloat(String((req as AuthenticatedRequest).user?.maxDiscountPercent ?? 100))
+      const maxDiscountPct = parseFloat(String((req as AuthenticatedRequest).user?.maxDiscountPercent ?? 0))
       for (const item of items) {
         if (!item.quantity || item.quantity <= 0) {
           return res.status(400).json({ error: 'La cantidad de cada producto debe ser mayor a 0' })
@@ -151,6 +151,16 @@ router.post(
         paymentEntries[0].amount = calcTotal
       }
 
+      // FIX 2: Validate that payments cover the total (except credit-only sales)
+      if (!allCredit) {
+        const totalPayments = paymentEntries.reduce((sum, p) => sum + (p.amount || 0), 0)
+        if (totalPayments < calcTotal - 0.01) {
+          return res.status(400).json({
+            error: `Pago insuficiente. Total: $${calcTotal.toFixed(2)}, pagado: $${totalPayments.toFixed(2)}`,
+          })
+        }
+      }
+
       // Derive register_id from the current shift
       let saleRegisterId: string | null = null
       try {
@@ -160,197 +170,215 @@ router.post(
         }
       } catch { /* non-critical */ }
 
-      // 1. Create invoice
-      const [invoice] = await db
-        .insert(invoices)
-        .values({
-          customerId: customerId || null,
-          type: 'I',
-          status: invoiceStatus,
-          paymentMethod: invoicePaymentMethod,
-          paymentForm: paymentForm,
-          subtotal: calcSubtotal.toFixed(2),
-          tax: calcTax.toFixed(2),
-          total: calcTotal.toFixed(2),
-          source: 'pos',
-          observations: observations || null,
-          registerId: saleRegisterId,
-        })
-        .returning()
-
-      // Generate human-readable ticket number (YYYYMMDD-NNNN)
-      let ticketNumber: string | null = null
+      // FIX 1: Wrap all DB writes in a transaction using a dedicated client
+      const client = await pool.connect()
       try {
-        const now = new Date()
-        const datePrefix = now.getFullYear().toString() +
-          String(now.getMonth() + 1).padStart(2, '0') +
-          String(now.getDate()).padStart(2, '0')
-        const tnResult = await pool.query(
-          `UPDATE invoices SET ticket_number = (
-            SELECT $1 || '-' || LPAD(
-              (COALESCE(MAX(CAST(SPLIT_PART(ticket_number, '-', 2) AS INTEGER)), 0) + 1)::text,
-              4, '0'
-            )
-            FROM invoices WHERE ticket_number LIKE $2
-          ) WHERE id = $3 RETURNING ticket_number`,
-          [datePrefix, datePrefix + '-%', invoice.id]
-        )
-        ticketNumber = tnResult.rows[0]?.ticket_number ?? null
-      } catch { /* non-critical */ }
+        await client.query('BEGIN')
 
-      // 2. Insert invoice items (store base price without tax, apply discount)
-      for (const item of items) {
-        const taxRate = item.taxRate ?? 0.16
-        const basePrice = taxRate > 0 ? item.price / (1 + taxRate) : item.price
-        const lineGross = item.price * item.quantity
-        const discountAmt = item.discount ?? 0
-        const lineNet = lineGross - discountAmt
-        const baseAmount = taxRate > 0 ? lineNet / (1 + taxRate) : lineNet
-        await db.insert(invoiceItems).values({
-          invoiceId: invoice.id,
-          description: item.name,
-          quantity: String(item.quantity),
-          unitPrice: basePrice.toFixed(2),
-          amount: baseAmount.toFixed(2),
-          discount: discountAmt > 0 ? discountAmt.toFixed(2) : undefined,
-          productId: item.productId || null,
-          taxRate: String(taxRate),
-        })
-      }
-
-      // 2b. Deduct inventory for POS sales (customer takes product immediately)
-      for (const item of items) {
-        if (!item.productId) continue
-        try {
-          await pool.query(
-            `INSERT INTO stock_movements (ingredient_id, type, quantity, reference, notes, user_id)
-             VALUES ($1, 'out', $2, $3, $4, $5)`,
-            [
-              item.productId,
-              String(item.quantity),
-              'POS-' + (invoice.series || '') + (invoice.folio || invoice.id),
-              'Venta POS',
-              req.user?.id || null,
-            ]
-          )
-          await pool.query(
-            `UPDATE products SET current_stock = current_stock - $1, updated_at = now() WHERE id = $2`,
-            [String(item.quantity), item.productId]
-          )
-        } catch {
-          // Non-critical: if stock_movements table doesn't exist (mod-inventory not loaded), sale continues
-        }
-      }
-
-      // 3. Insert payment records
-      for (const payment of paymentEntries) {
-        await pool.query(
-          `INSERT INTO payments (invoice_id, method, amount, reference, shift_id, user_id, customer_id, register_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        // 1. Create invoice
+        const invoiceResult = await client.query(
+          `INSERT INTO invoices (customer_id, type, status, payment_method, payment_form, subtotal, tax, total, source, observations, register_id)
+           VALUES ($1, 'I', $2, $3, $4, $5, $6, $7, 'pos', $8, $9)
+           RETURNING *`,
           [
-            invoice.id,
-            payment.method,
-            payment.amount || 0,
-            payment.reference || null,
-            shiftId || null,
-            req.user?.id || null,
-            payment.method === 'credit' ? customerId : null,
+            customerId || null,
+            invoiceStatus,
+            invoicePaymentMethod,
+            paymentForm,
+            calcSubtotal.toFixed(2),
+            calcTax.toFixed(2),
+            calcTotal.toFixed(2),
+            observations || null,
             saleRegisterId,
           ]
         )
-      }
+        const invoice = invoiceResult.rows[0]
 
-      // 4. Create receivable and recalculate credit balance for credit sales
-      if (hasCredit && customerId) {
-        const creditDays = customer?.creditDays || 30
-        const dueDate = new Date()
-        dueDate.setDate(dueDate.getDate() + creditDays)
+        // Generate human-readable ticket number (YYYYMMDD-NNNN)
+        let ticketNumber: string | null = null
+        try {
+          const now = new Date()
+          const datePrefix = now.getFullYear().toString() +
+            String(now.getMonth() + 1).padStart(2, '0') +
+            String(now.getDate()).padStart(2, '0')
+          const tnResult = await client.query(
+            `UPDATE invoices SET ticket_number = (
+              SELECT $1 || '-' || LPAD(
+                (COALESCE(MAX(CAST(SPLIT_PART(ticket_number, '-', 2) AS INTEGER)), 0) + 1)::text,
+                4, '0'
+              )
+              FROM invoices WHERE ticket_number LIKE $2 FOR UPDATE
+            ) WHERE id = $3 RETURNING ticket_number`,
+            [datePrefix, datePrefix + '-%', invoice.id]
+          )
+          ticketNumber = tnResult.rows[0]?.ticket_number ?? null
+        } catch { /* non-critical */ }
 
-        await pool.query(
-          `INSERT INTO receivables (customer_id, ticket_id, original_amount, balance, issued_date, due_date, status)
-           VALUES ($1, $2, $3, $4, now(), $5, 'current')`,
-          [customerId, invoice.id, creditAmount, creditAmount, dueDate]
-        )
-
-        // Recalculate credit_balance from receivables
-        const balResult = await pool.query(
-          `SELECT coalesce(sum(balance), 0) as total FROM receivables
-           WHERE customer_id = $1 AND status IN ('current', 'overdue', 'partial')`,
-          [customerId]
-        )
-        await db.update(customers).set({
-          creditBalance: String(balResult.rows[0]?.total ?? '0'),
-          updatedAt: sql`now()`,
-        }).where(eq(customers.id, customerId))
-      }
-
-      // Calculate change for cash payments
-      const cashPayment = paymentEntries.find((p) => p.method === 'cash')
-      let change = 0
-      if (cashPayment && cashTendered) {
-        change = cashTendered - (cashPayment.amount || 0)
-      } else if (paymentMethod === 'cash' && cashTendered) {
-        change = cashTendered - calcTotal
-      }
-
-      // 5. Enqueue sale for cloud sync
-      try {
-        // Resolve product cloud_ids for each item
-        const enrichedItems = await Promise.all(
-          items.map(async (item: any) => {
-            let productCloudId = null
-            if (item.productId) {
-              const r = await pool.query('SELECT cloud_id FROM products WHERE id = $1', [item.productId])
-              productCloudId = r.rows[0]?.cloud_id ?? null
-            }
-            return { ...item, productCloudId }
-          })
-        )
-
-        // Resolve cashier cloud_id
-        let userCloudId = null
-        if (req.user?.id) {
-          const ur = await pool.query('SELECT cloud_id FROM users WHERE id = $1', [req.user.id])
-          userCloudId = ur.rows[0]?.cloud_id ?? null
+        // 2. Insert invoice items (store base price without tax, apply discount)
+        for (const item of items) {
+          const taxRate = item.taxRate ?? 0.16
+          const basePrice = taxRate > 0 ? item.price / (1 + taxRate) : item.price
+          const lineGross = item.price * item.quantity
+          const discountAmt = item.discount ?? 0
+          const lineNet = lineGross - discountAmt
+          const baseAmount = taxRate > 0 ? lineNet / (1 + taxRate) : lineNet
+          await client.query(
+            `INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, amount, discount, product_id, tax_rate)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [
+              invoice.id,
+              item.name,
+              String(item.quantity),
+              basePrice.toFixed(2),
+              baseAmount.toFixed(2),
+              discountAmt > 0 ? discountAmt.toFixed(2) : '0',
+              item.productId || null,
+              String(taxRate),
+            ]
+          )
         }
 
-        // Resolve register cloud_id
-        let registerCloudId = null
-        if (saleRegisterId) {
+        // 2b. Deduct inventory for POS sales (customer takes product immediately)
+        for (const item of items) {
+          if (!item.productId) continue
           try {
-            const rr = await pool.query('SELECT cloud_id FROM pos_registers WHERE id = $1', [saleRegisterId])
-            registerCloudId = rr.rows[0]?.cloud_id ?? null
-          } catch { /* table may not exist yet */ }
+            await client.query(
+              `INSERT INTO stock_movements (ingredient_id, type, quantity, reference, notes, user_id)
+               VALUES ($1, 'out', $2, $3, $4, $5)`,
+              [
+                item.productId,
+                String(item.quantity),
+                'POS-' + (invoice.series || '') + (invoice.folio || invoice.id),
+                'Venta POS',
+                req.user?.id || null,
+              ]
+            )
+            await client.query(
+              `UPDATE products SET current_stock = current_stock - $1, updated_at = now() WHERE id = $2`,
+              [String(item.quantity), item.productId]
+            )
+          } catch {
+            // Non-critical: if stock_movements table doesn't exist (mod-inventory not loaded), sale continues
+          }
         }
 
-        const salePayload = buildSalePayload(invoice, enrichedItems, paymentEntries, userCloudId, registerCloudId)
-        await pool.query(
-          `INSERT INTO sync_queue (id, entity_type, entity_local_id, payload, status)
-           VALUES (gen_random_uuid(), 'sale', $1, $2, 'pending')`,
-          [invoice.id, JSON.stringify(salePayload)]
-        )
-      } catch {
-        // Non-critical: sale saved locally, sync will retry later
-      }
-
-      // 6. Trigger sync engine if available
-      try {
-        const syncEngine = req.app.get('syncEngine')
-        if (syncEngine && typeof syncEngine.triggerSync === 'function') {
-          syncEngine.triggerSync()
+        // 3. Insert payment records
+        for (const payment of paymentEntries) {
+          await client.query(
+            `INSERT INTO payments (invoice_id, method, amount, reference, shift_id, user_id, customer_id, register_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [
+              invoice.id,
+              payment.method,
+              payment.amount || 0,
+              payment.reference || null,
+              shiftId || null,
+              req.user?.id || null,
+              payment.method === 'credit' ? customerId : null,
+              saleRegisterId,
+            ]
+          )
         }
-      } catch {
-        // Non-critical
-      }
 
-      res.status(201).json({
-        id: invoice.id,
-        ticketNumber,
-        total: invoice.total,
-        status: invoice.status,
-        paymentMethod: invoice.paymentMethod,
-        change: Math.max(0, change),
-      })
+        // 4. Create receivable and recalculate credit balance for credit sales
+        if (hasCredit && customerId) {
+          const creditDays = customer?.creditDays || 30
+          const dueDate = new Date()
+          dueDate.setDate(dueDate.getDate() + creditDays)
+
+          await client.query(
+            `INSERT INTO receivables (customer_id, ticket_id, original_amount, balance, issued_date, due_date, status)
+             VALUES ($1, $2, $3, $4, now(), $5, 'current')`,
+            [customerId, invoice.id, creditAmount, creditAmount, dueDate]
+          )
+
+          // Recalculate credit_balance from receivables
+          const balResult = await client.query(
+            `SELECT coalesce(sum(balance), 0) as total FROM receivables
+             WHERE customer_id = $1 AND status IN ('current', 'overdue', 'partial')`,
+            [customerId]
+          )
+          await client.query(
+            `UPDATE customers SET credit_balance = $1, updated_at = now() WHERE id = $2`,
+            [String(balResult.rows[0]?.total ?? '0'), customerId]
+          )
+        }
+
+        await client.query('COMMIT')
+
+        // Calculate change for cash payments
+        let change = 0
+        if (cashTendered) {
+          const cashPayment = paymentEntries.find((p) => p.method === 'cash')
+          if (cashPayment) {
+            change = Math.max(0, cashTendered - cashPayment.amount)
+          }
+        }
+
+        // 5. Enqueue sale for cloud sync (outside transaction — non-critical)
+        try {
+          // Resolve product cloud_ids for each item
+          const enrichedItems = await Promise.all(
+            items.map(async (item: any) => {
+              let productCloudId = null
+              if (item.productId) {
+                const r = await pool.query('SELECT cloud_id FROM products WHERE id = $1', [item.productId])
+                productCloudId = r.rows[0]?.cloud_id ?? null
+              }
+              return { ...item, productCloudId }
+            })
+          )
+
+          // Resolve cashier cloud_id
+          let userCloudId = null
+          if (req.user?.id) {
+            const ur = await pool.query('SELECT cloud_id FROM users WHERE id = $1', [req.user.id])
+            userCloudId = ur.rows[0]?.cloud_id ?? null
+          }
+
+          // Resolve register cloud_id
+          let registerCloudId = null
+          if (saleRegisterId) {
+            try {
+              const rr = await pool.query('SELECT cloud_id FROM pos_registers WHERE id = $1', [saleRegisterId])
+              registerCloudId = rr.rows[0]?.cloud_id ?? null
+            } catch { /* table may not exist yet */ }
+          }
+
+          const salePayload = buildSalePayload(invoice, enrichedItems, paymentEntries, userCloudId, registerCloudId)
+          await pool.query(
+            `INSERT INTO sync_queue (id, entity_type, entity_local_id, payload, status)
+             VALUES (gen_random_uuid(), 'sale', $1, $2, 'pending')`,
+            [invoice.id, JSON.stringify(salePayload)]
+          )
+        } catch {
+          // Non-critical: sale saved locally, sync will retry later
+        }
+
+        // 6. Trigger sync engine if available
+        try {
+          const syncEngine = req.app.get('syncEngine')
+          if (syncEngine && typeof syncEngine.triggerSync === 'function') {
+            syncEngine.triggerSync()
+          }
+        } catch {
+          // Non-critical
+        }
+
+        res.status(201).json({
+          id: invoice.id,
+          ticketNumber,
+          total: invoice.total,
+          status: invoice.status,
+          paymentMethod: invoice.payment_method,
+          change: Math.max(0, change),
+        })
+      } catch (txErr) {
+        await client.query('ROLLBACK')
+        throw txErr
+      } finally {
+        client.release()
+      }
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Error creating sale' })
     }

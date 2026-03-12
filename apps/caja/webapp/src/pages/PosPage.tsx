@@ -125,6 +125,9 @@ export default function PosPage() {
   const barcodeBuffer = useRef('')
   const lastKeyTime = useRef(0)
 
+  // Payment processing state (prevent double-clicks)
+  const [processing, setProcessing] = useState(false)
+
   // Editing discount state
   const [editingDiscountId, setEditingDiscountId] = useState<string | null>(null)
   const [discountInput, setDiscountInput] = useState('')
@@ -278,6 +281,8 @@ export default function PosPage() {
     payments: { method: string; amount: number; reference?: string }[],
     cashTendered?: number
   ) => {
+    if (processing) return
+    setProcessing(true)
     try {
       await api.post('/api/sales', {
         items: items.map((item) => {
@@ -318,25 +323,29 @@ export default function PosPage() {
       const message = err?.response?.data?.error || 'Error al procesar la venta'
       toast.error(message)
       throw err
+    } finally {
+      setProcessing(false)
     }
   }
 
   // Apply/reset customer pricing when customer changes
   useEffect(() => {
+    const { items: currentItems, updateItemPrice: storeUpdatePrice, updateItemDiscount: storeUpdateDiscount } = useCartStore.getState()
     if (!customerId) {
       // Reset prices and discounts
-      items.forEach((item) => {
-        if (item.price !== item.originalPrice) updateItemPrice(item.id, item.originalPrice)
-        if (item.discount !== 0) updateItemDiscount(item.id, 0)
+      currentItems.forEach((item) => {
+        if (item.price !== item.originalPrice) storeUpdatePrice(item.id, item.originalPrice)
+        if (item.discount !== 0) storeUpdateDiscount(item.id, 0)
       })
       return
     }
     const customer = customers.find((c) => c.id === customerId)
     if (!customer) return
 
-    const defaultDiscount = Math.min(parseFloat(String(customer.defaultDiscount ?? 0)), maxDiscountPct)
+    const safeMaxDiscount = Number.isFinite(maxDiscountPct) ? maxDiscountPct : 0
+    const defaultDiscount = Math.min(parseFloat(String(customer.defaultDiscount ?? 0)), safeMaxDiscount)
 
-    items.forEach((item) => {
+    currentItems.forEach((item) => {
       const product = products.find((p) => p.id === item.productId)
       if (!product) return
 
@@ -346,11 +355,11 @@ export default function PosPage() {
         const pl = product.prices.find((p) => p.priceListId === customer.priceListId)
         if (pl) newPrice = typeof pl.price === 'string' ? parseFloat(pl.price as string) : pl.price
       }
-      if (item.price !== newPrice) updateItemPrice(item.id, newPrice)
+      if (item.price !== newPrice) storeUpdatePrice(item.id, newPrice)
 
       // Apply default discount
       if (defaultDiscount > 0 && item.discount !== defaultDiscount) {
-        updateItemDiscount(item.id, defaultDiscount)
+        storeUpdateDiscount(item.id, defaultDiscount)
       }
     })
   }, [customerId]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -846,7 +855,8 @@ export default function PosPage() {
                           onChange={(e) => setDiscountInput(e.target.value)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
-                              const val = Math.min(parseFloat(discountInput) || 0, maxDiscountPct)
+                              const safeMax = Number.isFinite(maxDiscountPct) ? maxDiscountPct : 0
+                              const val = Math.min(parseFloat(discountInput) || 0, safeMax)
                               updateItemDiscount(item.id, val)
                               setEditingDiscountId(null)
                             } else if (e.key === 'Escape') {
@@ -854,7 +864,8 @@ export default function PosPage() {
                             }
                           }}
                           onBlur={() => {
-                            const val = Math.min(parseFloat(discountInput) || 0, maxDiscountPct)
+                            const safeMax = Number.isFinite(maxDiscountPct) ? maxDiscountPct : 0
+                            const val = Math.min(parseFloat(discountInput) || 0, safeMax)
                             updateItemDiscount(item.id, val)
                             setEditingDiscountId(null)
                           }}
@@ -936,7 +947,7 @@ export default function PosPage() {
                 if (items.length === 0) return
                 handleConfirmPayment([{ method: 'cash', amount: total() }], total())
               }}
-              disabled={items.length === 0 || !shiftOpen}
+              disabled={items.length === 0 || !shiftOpen || processing}
               className="flex flex-col items-center gap-0.5 rounded-lg border border-gray-200 px-2 py-2 text-gray-500 transition-colors hover:bg-gray-50 disabled:opacity-30"
               type="button"
             >
@@ -949,7 +960,7 @@ export default function PosPage() {
                 if (items.length === 0) return
                 handleConfirmPayment([{ method: 'card', amount: total() }])
               }}
-              disabled={items.length === 0 || !shiftOpen}
+              disabled={items.length === 0 || !shiftOpen || processing}
               className="flex flex-col items-center gap-0.5 rounded-lg border border-gray-200 px-2 py-2 text-gray-500 transition-colors hover:bg-gray-50 disabled:opacity-30"
               type="button"
             >
@@ -962,7 +973,7 @@ export default function PosPage() {
                 if (items.length === 0) return
                 handleConfirmPayment([{ method: 'transfer', amount: total() }])
               }}
-              disabled={items.length === 0 || !shiftOpen}
+              disabled={items.length === 0 || !shiftOpen || processing}
               className="flex flex-col items-center gap-0.5 rounded-lg border border-gray-200 px-2 py-2 text-gray-500 transition-colors hover:bg-gray-50 disabled:opacity-30"
               type="button"
             >

@@ -66,7 +66,9 @@ export class WsClient {
       type: 'order_status',
       ...data,
     }
-    this.ws.send(JSON.stringify(msg))
+    this.ws.send(JSON.stringify(msg), (err) => {
+      if (err) console.error('[ws-client] Failed to send order_status:', err.message)
+    })
   }
 
   private connect(): void {
@@ -191,6 +193,10 @@ export class WsClient {
 
   private scheduleReconnect(): void {
     if (this._stopped) return
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout)
+      this.reconnectTimeout = null
+    }
 
     this.reconnectAttempt++
     const delay = calculateDelayMs(this.reconnectAttempt)
