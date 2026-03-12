@@ -117,31 +117,6 @@ export function createOnlineOrderRoutes(pool: Pool) {
       const isPickup = (invoice.delivery_type_cloud || 'pickup') === 'pickup'
       lines.push(`Tipo: ${isPickup ? 'RECOGER EN TIENDA' : 'ENTREGA A DOMICILIO'}`)
 
-      // Payment info
-      const paymentStatus = invoice.payment_status_cloud || 'pending'
-      const paymentMethod = invoice.payment_method_cloud || ''
-      if (paymentStatus === 'paid') {
-        lines.push('Estado pago: PAGADO')
-      } else {
-        lines.push('Estado pago: POR COBRAR')
-        if (paymentMethod) {
-          lines.push(`Cobra con: ${getPaymentMethodLabel(paymentMethod)}`)
-        }
-      }
-
-      lines.push(SEP)
-
-      // Customer info
-      lines.push(`Cliente: ${invoice.customer_name || 'N/A'}`)
-      if (invoice.customer_phone) {
-        lines.push(`Tel: ${invoice.customer_phone}`)
-      }
-
-      // Delivery address
-      if (!isPickup && invoice.delivery_address) {
-        lines.push(`Direccion: ${invoice.delivery_address}`)
-      }
-
       lines.push(SEP)
 
       // Items header
@@ -195,6 +170,8 @@ export function createOnlineOrderRoutes(pool: Pool) {
       lines.push(DSEP)
 
       // Payment status highlight
+      const paymentStatus = invoice.payment_status_cloud || 'pending'
+      const paymentMethod = invoice.payment_method_cloud || ''
       lines.push('')
       if (paymentStatus === 'paid') {
         lines.push(center('*** YA PAGADO ***'))
@@ -205,10 +182,53 @@ export function createOnlineOrderRoutes(pool: Pool) {
         }
       }
 
-      // Notes
-      if (invoice.observations && invoice.observations !== 'Pedido Online') {
+      // ─── Datos para el repartidor ───────────────
+      lines.push('')
+      lines.push(SEP)
+      lines.push(center('DATOS DE ENTREGA'))
+      lines.push(SEP)
+
+      lines.push(`Cliente: ${invoice.customer_name || 'N/A'}`)
+      if (invoice.customer_phone) {
+        lines.push(`Tel: ${invoice.customer_phone}`)
+      }
+      if (invoice.delivery_address) {
+        // Wrap long addresses
+        const addr = invoice.delivery_address
+        if (addr.length > W) {
+          const words = addr.split(' ')
+          let line = 'Dir: '
+          for (const word of words) {
+            if (line.length + word.length + 1 > W) {
+              lines.push(line)
+              line = '     ' + word
+            } else {
+              line += (line.length > 5 ? ' ' : '') + word
+            }
+          }
+          if (line.trim()) lines.push(line)
+        } else {
+          lines.push(`Dir: ${addr}`)
+        }
+      }
+
+      // Payment method for driver
+      if (paymentStatus !== 'paid' && paymentMethod) {
         lines.push('')
-        lines.push(`Notas: ${invoice.observations}`)
+        lines.push(`Metodo pago: ${getPaymentMethodLabel(paymentMethod)}`)
+        if (paymentMethod.startsWith('card')) {
+          lines.push('>> LLEVAR TERMINAL <<')
+        }
+      }
+
+      // Notes (important for driver — e.g. "llevar cambio de 500")
+      // Parse notes from observations (format: "Pedido: XXX | notes text")
+      const rawObs = invoice.observations || ''
+      const obsParts = rawObs.split(' | ').filter((p: string) => !p.startsWith('Pedido:'))
+      const notesText = obsParts.length > 0 ? obsParts.join(' | ') : ''
+      if (notesText) {
+        lines.push('')
+        lines.push(`Notas: ${notesText}`)
       }
 
       lines.push('')
